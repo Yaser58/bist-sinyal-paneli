@@ -436,62 +436,67 @@ def api_status():
 
 # ─── Başlatma ─────────────────────────────────────────────────
 
-def _initialize():
-    print("  ⚙️  Veritabanı hazırlanıyor...")
-    init_db()
-    init_signals_table()
+def _heavy_init():
+    """Ağır işlemleri arka planda yapar (fiyat çekme, haber toplama)."""
+    try:
+        print("  [1/3] Fiyat verileri çekiliyor...")
+        fetch_all_historical_prices()
+        print("  [2/3] Haberler toplanıyor...")
+        fetch_kap_notifications()
+        fetch_all_feeds()
+        print("  [3/3] Proaktif tarama yapılıyor...")
+        tech_signals = run_proactive_scan()
+        for sig in tech_signals[:5]:
+            save_signal(sig)
+            worker_status["total_signals"] += 1
 
-    # Eski spam sinyalleri temizle
-    conn = get_connection()
-    conn.execute("DELETE FROM signals")
-    conn.commit()
-    conn.close()
-    print("  🧹 Eski sinyaller temizlendi.")
+        unprocessed = get_unprocessed_news()
+        for news in unprocessed:
+            result = process_news_item(news)
+            tickers_json = json.dumps(result["tickers"])
+            macro_json = json.dumps(result["macro_keywords"]) if result["macro_keywords"] else None
+            update_news_sentiment(
+                news_id=result["news_id"],
+                sentiment_score=result["sentiment_score"],
+                sentiment_label=result["sentiment_label"],
+                related_tickers=tickers_json,
+                is_macro=result["is_macro"],
+                macro_keywords=macro_json
+            )
+            if result["sentiment_label"] != "neutral" or result["is_macro"]:
+                for tc in result["tickers"]:
+                    sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
+                    if sig:
+                        worker_status["total_signals"] += 1
+                if result["is_macro"] and not result["tickers"]:
+                    sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
+                    worker_status["total_signals"] += len(sigs)
 
-    print("  [1/3] Fiyat verileri çekiliyor...")
-    fetch_all_historical_prices()
-    print("  [2/3] Haberler toplanıyor...")
-    fetch_kap_notifications()
-    fetch_all_feeds()
-    print("  [3/3] Proaktif tarama yapılıyor...")
-    tech_signals = run_proactive_scan()
-    for sig in tech_signals[:5]:
-        save_signal(sig)
-        worker_status["total_signals"] += 1
+        worker_status["last_check"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        print("  ✅ Veri çekme tamamlandı!")
+    except Exception as e:
+        print(f"  [HATA] Init hatası: {e}")
 
-    unprocessed = get_unprocessed_news()
-    for news in unprocessed:
-        result = process_news_item(news)
-        tickers_json = json.dumps(result["tickers"])
-        macro_json = json.dumps(result["macro_keywords"]) if result["macro_keywords"] else None
-        update_news_sentiment(
-            news_id=result["news_id"],
-            sentiment_score=result["sentiment_score"],
-            sentiment_label=result["sentiment_label"],
-            related_tickers=tickers_json,
-            is_macro=result["is_macro"],
-            macro_keywords=macro_json
-        )
-        if result["sentiment_label"] != "neutral" or result["is_macro"]:
-            for tc in result["tickers"]:
-                sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
-                if sig:
-                    worker_status["total_signals"] += 1
-            if result["is_macro"] and not result["tickers"]:
-                sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
-                worker_status["total_signals"] += len(sigs)
-
-    worker_status["last_check"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-
-    worker_thread = threading.Thread(target=background_worker, daemon=True)
-    worker_thread.start()
-    print("  ✅ Worker başlatıldı!")
+    # Sonra sürekli çalışan worker'a geç
+    background_worker()
 
 
-_initialized = False
-if not _initialized:
-    _initialized = True
-    _initialize()
+# Sadece veritabanını oluştur (hızlı), ağır işleri arka plana at
+print("  ⚙️  Veritabanı hazırlanıyor...")
+init_db()
+init_signals_table()
+
+# Eski sinyalleri temizle
+conn = get_connection()
+conn.execute("DELETE FROM signals")
+conn.commit()
+conn.close()
+print("  🧹 Sinyaller temizlendi.")
+
+# Ağır işleri arka plan thread'de başlat (gunicorn'u BLOKE ETMEZ)
+init_thread = threading.Thread(target=_heavy_init, daemon=True)
+init_thread.start()
+print("  🚀 Arka plan worker başlatıldı, web sunucu hazır!")
 
 
 def start_web_app(host="0.0.0.0", port=None):
@@ -503,3 +508,4 @@ def start_web_app(host="0.0.0.0", port=None):
 
 if __name__ == "__main__":
     start_web_app()
+
