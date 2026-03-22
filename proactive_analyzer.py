@@ -8,7 +8,7 @@ kendi başına sinyal üretir. Trendleri, momentumu ve volatiliteyi analiz eder.
 from datetime import datetime, timedelta
 from database import get_connection, init_db
 from config import BIST_TICKERS, TICKER_NAMES
-from signal_generator import init_signals_table
+from signal_generator import init_signals_table, has_active_signal, add_business_days
 
 
 def analyze_ticker_technicals(ticker_yf):
@@ -129,11 +129,15 @@ def analyze_ticker_technicals(ticker_yf):
             score *= 1.2
 
     # ── Sinyal Kararı ──
-    if abs(score) < 2:
-        return None  # Zayıf sinyal
+    if abs(score) < 3.5:
+        return None  # Zayıf sinyal — sadece güçlü sinyaller geçer
 
     today = datetime.now()
     ticker_code = ticker_yf.replace(".IS", "")
+
+    # Bu hisse için zaten aktif sinyal var mı?
+    if has_active_signal(ticker_code):
+        return None
 
     expected_change = round(score * 0.8, 2)
     if expected_change > 15:
@@ -156,7 +160,7 @@ def analyze_ticker_technicals(ticker_yf):
         "ticker_yf": ticker_yf,
         "direction": direction,
         "start_date": today.strftime("%d.%m.%Y"),
-        "end_date": (today + timedelta(days=7)).strftime("%d.%m.%Y"),
+        "end_date": add_business_days(today, 5).strftime("%d.%m.%Y"),
         "expected_change_pct": expected_change,
         "current_price": current_price,
         "confidence": confidence,
@@ -198,11 +202,12 @@ def run_proactive_scan():
         if sig:
             signals.append(sig)
 
-    # En güçlü sinyalleri sırala
+    # En güçlü sinyalleri sırala, max 5 sinyal
     signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
+    signals = signals[:5]  # En fazla 5 sinyal üret
 
     if signals:
-        print(f"\n  🎯 {len(signals)} sinyal bulundu!\n")
+        print(f"\n  🎯 {len(signals)} güçlü sinyal bulundu!\n")
     else:
         print(f"\n  ℹ️ Güçlü teknik sinyal bulunamadı.")
 

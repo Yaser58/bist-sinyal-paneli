@@ -20,6 +20,53 @@ from config import TICKER_NAMES, BIST_TICKERS, MACRO_KEYWORDS
 from database import get_connection, init_db
 
 
+# ─── BIST İş Günü Hesaplama ──────────────────────────────────
+
+# BIST resmi tatil günleri (2026 tahmini)
+BIST_HOLIDAYS = [
+    "2026-01-01",  # Yılbaşı
+    "2026-03-29",  # Ramazan Bayramı (tahmini)
+    "2026-03-30",
+    "2026-03-31",
+    "2026-04-23",  # Ulusal Egemenlik
+    "2026-05-01",  # İşçi Bayramı
+    "2026-05-19",  # Gençlik Bayramı
+    "2026-06-05",  # Kurban Bayramı (tahmini)
+    "2026-06-06",
+    "2026-06-07",
+    "2026-06-08",
+    "2026-07-15",  # Demokrasi Bayramı
+    "2026-08-30",  # Zafer Bayramı
+    "2026-10-29",  # Cumhuriyet Bayramı
+]
+
+def add_business_days(start_date, num_days):
+    """Başlangıç tarihinden itibaren N iş günü ekler (hafta sonu ve tatil hariç)."""
+    current = start_date
+    added = 0
+    while added < num_days:
+        current += timedelta(days=1)
+        # Hafta sonu mu? (5=Cumartesi, 6=Pazar)
+        if current.weekday() >= 5:
+            continue
+        # Resmi tatil mi?
+        if current.strftime("%Y-%m-%d") in BIST_HOLIDAYS:
+            continue
+        added += 1
+    return current
+
+
+def has_active_signal(ticker_code):
+    """Bu hisse için zaten aktif bir sinyal var mı kontrol eder."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT COUNT(*) as c FROM signals WHERE ticker=? AND status='AKTIF'",
+        (ticker_code,)
+    ).fetchone()
+    conn.close()
+    return row["c"] > 0
+
+
 # ─── Sinyal Tablosu Oluşturma ────────────────────────────────
 
 def init_signals_table():
@@ -59,9 +106,14 @@ def init_signals_table():
 def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, news_summary=""):
     """
     Bir hisse için somut sinyal üretir.
+    Aynı hisse için aktif sinyal varsa yeni sinyal ÜRETMEZ.
     
     Returns: dict with signal details or None if no signal
     """
+    # ── Tekrar sinyal kontrolü ──
+    if has_active_signal(ticker_code):
+        return None  # Bu hisse için zaten aktif sinyal var
+    
     yf_ticker = TICKER_NAMES.get(ticker_code, f"{ticker_code}.IS")
     conn = get_connection()
     
@@ -165,17 +217,17 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     
     expected_change = round(base_expectation, 2)
     
-    # Yön belirleme
-    if expected_change > 0.5:
+    # Yön belirleme — eşik %1.5 (sadece güçlü sinyaller)
+    if expected_change > 1.5:
         direction = "YÜKSELİŞ 📈"
-    elif expected_change < -0.5:
+    elif expected_change < -1.5:
         direction = "DÜŞÜŞ 📉"
     else:
-        # Çok zayıf sinyal, üretme
+        # Zayıf sinyal, güvenilir değil — üretme
         return None
     
-    # Bitiş tarihi: 7 gün sonra (1 haftalık sinyal)
-    end_date_dt = today + timedelta(days=7)
+    # Bitiş tarihi: 5 İŞ GÜNÜ sonra (BIST sadece hafta içi açık)
+    end_date_dt = add_business_days(today, 5)
     end_date = end_date_dt.strftime("%d.%m.%Y")
     
     # Güvenilirlik
@@ -220,16 +272,18 @@ def generate_macro_signal(sentiment_score, sentiment_label, news_title):
     """
     Makro/jeopolitik haber için BIST-100 geneli üzerinde sinyal üretir.
     Savaş, faiz, döviz gibi haberler tüm piyasayı etkiler.
+    Sadece en hassas 5 hisse için sinyal üretir (spam önleme).
     """
-    # En çok işlem gören 10 hisse için sinyal üret
-    top_tickers = ["THYAO", "ASELS", "GARAN", "AKBNK", "EREGL",
-                   "KCHOL", "SAHOL", "TUPRS", "BIMAS", "SISE"]
+    # En çok etkilenen 5 hisse (makro haberlere en duyarlı sektörler)
+    macro_sensitive = ["THYAO", "GARAN", "TUPRS", "EREGL", "KCHOL"]
     
     signals = []
-    for ticker in top_tickers:
+    for ticker in macro_sensitive:
         sig = generate_signal(ticker, sentiment_score, sentiment_label, news_title)
         if sig:
             signals.append(sig)
+        if len(signals) >= 3:  # Makro haberlerde max 3 sinyal
+            break
     
     return signals
 
