@@ -16,10 +16,15 @@ from config import RSS_FEEDS
 from database import insert_news, init_db
 
 
+def get_tr_time():
+    """Türkiye saatini (UTC+3) döndürür."""
+    # Render gibi UTC makinalarında doğru saati almak için +3 eklenir
+    return (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+
 def parse_date(date_str):
-    """Farklı formatlardaki tarihleri standart formata çevirir."""
+    """Farklı formatlardaki tarihleri standart formata (TR Saati) çevirir."""
     if not date_str:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return get_tr_time()
 
     formats = [
         "%a, %d %b %Y %H:%M:%S %z",
@@ -33,6 +38,11 @@ def parse_date(date_str):
     for fmt in formats:
         try:
             dt = datetime.strptime(date_str.strip(), fmt)
+            # Eğer timezone içeriyorsa, önce UTC'ye çevirip üstüne 3 saat ekleyelim (TR saati)
+            if dt.tzinfo:
+                from datetime import timezone
+                dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return (dt_utc + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
             return dt.strftime("%Y-%m-%d %H:%M:%S")
         except ValueError:
             continue
@@ -42,11 +52,11 @@ def parse_date(date_str):
         import calendar
         if hasattr(date_str, 'tm_year'):
             ts = calendar.timegm(date_str)
-            return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+            return (datetime.utcfromtimestamp(ts) + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         pass
 
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return get_tr_time()
 
 
 def clean_html(html_text):
@@ -85,7 +95,7 @@ def fetch_rss_feed(feed_name, feed_url):
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 import calendar
                 ts = calendar.timegm(entry.published_parsed)
-                pub_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                pub_date = (datetime.utcfromtimestamp(ts) + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
             else:
                 pub_date = parse_date(published)
 

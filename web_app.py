@@ -609,7 +609,17 @@ DASHBOARD_HTML = """
     {% elif page == 'news' %}
     <!-- NEWS PAGE -->
     <div class="container">
-        <div class="sec-title">📰 Canlı Haberler</div>
+        <div class="sec-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>📰 Canlı Haberler</span>
+            <form method="get" action="/news" style="display:flex; gap:8px; align-items:center;">
+                <label for="dateFilter" style="font-size:12px;color:var(--t2);">Tarih Seç:</label>
+                <input type="date" id="dateFilter" name="date" value="{{ filter_date }}" style="background:var(--bg3);border:1px solid var(--br);border-radius:6px;padding:4px 8px;color:var(--t1);font-size:12px;font-family:inherit;outline:none;">
+                <button type="submit" style="background:var(--accent);border:none;border-radius:6px;color:white;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;">Filtrele</button>
+                {% if filter_date %}
+                <a href="/news" style="font-size:12px;color:var(--r);text-decoration:none;font-weight:600;margin-left:8px;">Temizle</a>
+                {% endif %}
+            </form>
+        </div>
         {% if news_list %}
         <div style="display:flex;flex-direction:column;gap:8px">
             {% for n in news_list %}
@@ -841,19 +851,30 @@ def history_page():
 @app.route("/news")
 def news_page():
     ctx = _get_common_context()
+    
+    filter_date = request.args.get("date", "")
 
-    # Son 100 haberi getir
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT * FROM news ORDER BY fetched_at DESC LIMIT 100
-    """).fetchall()
+    if filter_date:
+        rows = conn.execute("""
+            SELECT * FROM news 
+            WHERE DATE(published_at) = ? OR DATE(fetched_at) = ?
+            ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT 200
+        """, (filter_date, filter_date)).fetchall()
+    else:
+        # Son 100 haberi getir, published_at (yayınlanma saati) baz alarak
+        rows = conn.execute("""
+            SELECT * FROM news ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT 100
+        """).fetchall()
     conn.close()
+    
     news_list = [dict(r) for r in rows]
 
     return render_template_string(
         DASHBOARD_HTML,
         page="news",
         news_list=news_list,
+        filter_date=filter_date,
         **ctx,
     )
 
