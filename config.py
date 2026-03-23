@@ -32,17 +32,15 @@ RSS_FEEDS = {
     "Mynet_Dunya": "https://www.mynet.com/haber/rss/kategori/dunya",
 }
 
-# ─── VİOP Pay Vadeli İşlem Sözleşmeleri ────────────────────────
-# Sadece VİOP'ta vadeli işlem sözleşmesi olan hisseler
+# ─── VİOP Pay Vadeli İşlem Sözleşmeleri (30 Hisse) ────────────
+# TradingView'de BIST:TICKER1! formatında VİOP futures olarak görüntülenebilen hisseler
 BIST_TICKERS = [
     "THYAO.IS", "ASELS.IS", "SASA.IS", "EREGL.IS", "KCHOL.IS",
     "GARAN.IS", "AKBNK.IS", "YKBNK.IS", "HALKB.IS", "VAKBN.IS",
     "ISCTR.IS", "SAHOL.IS", "TUPRS.IS", "BIMAS.IS", "KOZAL.IS",
-    "KOZAA.IS", "PGSUS.IS", "TAVHL.IS", "TCELL.IS", "TTKOM.IS",
-    "SISE.IS", "TOASO.IS", "FROTO.IS", "ARCLK.IS", "VESTL.IS",
-    "PETKM.IS", "ENKAI.IS", "EKGYO.IS", "DOHOL.IS", "MGROS.IS",
-    "SOKM.IS", "KRDMD.IS", "ISDMR.IS", "KONTR.IS",
-    "GUBRF.IS", "HEKTS.IS", "GESAN.IS", "ODAS.IS", "ENJSA.IS",
+    "PGSUS.IS", "TAVHL.IS", "TCELL.IS", "TTKOM.IS", "SISE.IS",
+    "TOASO.IS", "FROTO.IS", "ARCLK.IS", "VESTL.IS", "PETKM.IS",
+    "ENKAI.IS", "EKGYO.IS", "DOHOL.IS", "MGROS.IS", "KRDMD.IS",
 ]
 
 # Ticker isimleri (THYAO.IS -> THYAO) - haber eşleştirme için

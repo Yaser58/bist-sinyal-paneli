@@ -721,11 +721,11 @@ DASHBOARD_HTML = """
     </div>
     {% endif %}
 
-    <div class="ft">VİOP Sinyal Paneli v4.2 — Otomatik yenileme: 30sn — 🧠 Backtest aktif — ⚠️ Yatırım tavsiyesi değildir</div>
-
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script>
     let currentTicker = null;
     let currentInterval = '15';
+    let tvWidget = null;
 
     // Aktif sinyaller verisi
     const signalsData = {
@@ -760,12 +760,23 @@ DASHBOARD_HTML = """
         if(activeCard) activeCard.classList.add('active');
         
         // VİOP vadeli sembol: TICKER1! formatı (TradingView continuous futures)
-        const viopSymbol = ticker + '1!';
+        const viopSymbol = 'BIST:' + ticker + '1!';
         
-        // TradingView widget - VİOP futures grafik
-        const container = document.getElementById('chartContainer');
-        
-        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22BIST%3A${viopSymbol}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        // TradingView JS Widget kullanımı
+        document.getElementById('chartContainer').innerHTML = ''; // Önceki temizle
+        tvWidget = new TradingView.widget({
+            "autosize": true,
+            "symbol": viopSymbol,
+            "interval": currentInterval,
+            "timezone": "Europe/Istanbul",
+            "theme": "dark",
+            "style": "1",
+            "locale": "tr",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "chartContainer"
+        });
         
         // Grafik başlığını güncelle
         document.getElementById('chartTickerName').textContent = ticker + ' (VİOP Vadeli)';
