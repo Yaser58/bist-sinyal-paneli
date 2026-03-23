@@ -759,14 +759,15 @@ DASHBOARD_HTML = """
         const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
         if(activeCard) activeCard.classList.add('active');
         
-        // VİOP vadeli sembol: TICKER1! formatı (TradingView continuous futures)
-        const viopSymbol = 'BIST:' + ticker + '1!';
+        // VİOP vadeli sembolleri TradingView tarafından embed edilmeye yasaklıdır.
+        // Bu yüzden mecburen SPOT grafiğini gösteriyoruz.
+        const tvSymbol = 'BIST:' + ticker;
         
         // TradingView JS Widget kullanımı
         document.getElementById('chartContainer').innerHTML = ''; // Önceki temizle
         tvWidget = new TradingView.widget({
             "autosize": true,
-            "symbol": viopSymbol,
+            "symbol": tvSymbol,
             "interval": currentInterval,
             "timezone": "Europe/Istanbul",
             "theme": "dark",
@@ -779,7 +780,7 @@ DASHBOARD_HTML = """
         });
         
         // Grafik başlığını güncelle
-        document.getElementById('chartTickerName').textContent = ticker + ' (VİOP Vadeli)';
+        document.getElementById('chartTickerName').textContent = ticker + ' (SPOT Grafik - Analizler VİOP)';
         
         // Sinyal bilgi panelini güncelle
         updateSignalPanel(ticker);
