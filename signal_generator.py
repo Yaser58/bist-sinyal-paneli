@@ -69,6 +69,21 @@ def has_active_signal(ticker_code):
 
 # ─── Sinyal Tablosu Oluşturma ────────────────────────────────
 
+# ─── Backtest Öğrenme Verileri ────────────────────────────────
+# Bu sözlük, geçmiş sinyallerden öğrenilen bilgileri tutar
+backtest_adjustments = {
+    "confidence_multiplier": 1.0,
+    "stop_loss_multiplier": 1.0,
+    "expected_change_multiplier": 1.0,
+    "min_score_threshold": 1.5,
+    "avoid_tickers": [],  # Sürekli kaybeden hisseler
+    "favor_tickers": [],  # Sürekli kazanan hisseler
+    "last_backtest": None,
+    "total_analyzed": 0,
+    "win_rate": 0,
+}
+
+
 def init_signals_table():
     """Sinyaller tablosunu oluşturur."""
     conn = get_connection()
@@ -85,6 +100,8 @@ def init_signals_table():
             actual_change_pct REAL,
             price_at_signal REAL,
             price_at_end REAL,
+            stop_loss_pct REAL,
+            stop_price REAL,
             confidence TEXT,
             confidence_score REAL,
             sentiment_score REAL,
@@ -97,8 +114,40 @@ def init_signals_table():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker)")
+    
+    # Mevcut tabloya stop_loss kolonları ekle (yoksa)
+    try:
+        conn.execute("ALTER TABLE signals ADD COLUMN stop_loss_pct REAL")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE signals ADD COLUMN stop_price REAL")
+    except Exception:
+        pass
+    
+    # Backtest sonuçları tablosu
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS backtest_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            total_signals INTEGER,
+            won_signals INTEGER,
+            stopped_signals INTEGER,
+            win_rate REAL,
+            avg_win_pct REAL,
+            avg_loss_pct REAL,
+            best_ticker TEXT,
+            worst_ticker TEXT,
+            adjustments TEXT,
+            notes TEXT
+        )
+    """)
+    
     conn.commit()
     conn.close()
+    
+    # İlk backtest çalıştır
+    run_backtest_learning()
 
 
 # ─── Sinyal Üretme ───────────────────────────────────────────
@@ -215,12 +264,18 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     if volatility > 3:
         base_expectation *= 1.3
     
-    expected_change = round(base_expectation, 2)
+    # Backtest öğrenmelerini uygula
+    expected_change = round(base_expectation * backtest_adjustments["expected_change_multiplier"], 2)
     
-    # Yön belirleme — eşik %1.5 (sadece güçlü sinyaller)
-    if expected_change > 1.5:
+    # Backtestten öğrenilen kaçınılacak hisseler
+    if ticker_code in backtest_adjustments["avoid_tickers"]:
+        return None  # Bu hisse sürekli kaybettiriyor, sinyal üretme
+    
+    # Yön belirleme — eşik backtest ile ayarlanır
+    threshold = backtest_adjustments["min_score_threshold"]
+    if expected_change > threshold:
         direction = "YÜKSELİŞ 📈"
-    elif expected_change < -1.5:
+    elif expected_change < -threshold:
         direction = "DÜŞÜŞ 📉"
     else:
         # Zayıf sinyal, güvenilir değil — üretme
@@ -230,19 +285,39 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     end_date_dt = add_business_days(today, 5)
     end_date = end_date_dt.strftime("%d.%m.%Y")
     
-    # Güvenilirlik
+    # Güvenilirlik (backtest ile ayarlanmış)
+    conf_mult = backtest_adjustments["confidence_multiplier"]
     if sample_size >= 20:
         confidence = "YÜKSEK ⭐⭐⭐"
-        confidence_score = 0.85
+        confidence_score = min(0.85 * conf_mult, 1.0)
     elif sample_size >= 10:
         confidence = "ORTA ⭐⭐"
-        confidence_score = 0.65
+        confidence_score = min(0.65 * conf_mult, 1.0)
     elif sample_size >= 3:
         confidence = "DÜŞÜK ⭐"
-        confidence_score = 0.45
+        confidence_score = min(0.45 * conf_mult, 1.0)
     else:
         confidence = "ÇOK DÜŞÜK (Yetersiz veri)"
-        confidence_score = 0.25
+        confidence_score = min(0.25 * conf_mult, 1.0)
+    
+    # Favori hisseler için güvenilirliği artır
+    if ticker_code in backtest_adjustments["favor_tickers"]:
+        confidence_score = min(confidence_score * 1.2, 1.0)
+    
+    # Stop-loss hesapla (backtest ile ayarlanmış)
+    sl_mult = backtest_adjustments["stop_loss_multiplier"]
+    stop_loss_pct = round(abs(expected_change) * 0.5 * sl_mult, 2)
+    stop_loss_pct = max(stop_loss_pct, 1.0)  # Minimum %1 stop-loss
+    stop_loss_pct = min(stop_loss_pct, 8.0)  # Maksimum %8 stop-loss
+    
+    # Stop fiyatı hesapla
+    if current_price:
+        if "YÜKSELİŞ" in direction:
+            stop_price = round(current_price * (1 - stop_loss_pct / 100), 2)
+        else:
+            stop_price = round(current_price * (1 + stop_loss_pct / 100), 2)
+    else:
+        stop_price = None
     
     signal = {
         "ticker": ticker_code,
@@ -252,6 +327,8 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
         "end_date": end_date,
         "expected_change_pct": expected_change,
         "current_price": current_price,
+        "stop_loss_pct": stop_loss_pct,
+        "stop_price": stop_price,
         "confidence": confidence,
         "confidence_score": confidence_score,
         "sentiment_score": sentiment_score,
@@ -296,13 +373,15 @@ def save_signal(signal):
     conn.execute("""
         INSERT INTO signals 
         (ticker, ticker_yf, direction, start_date, end_date, 
-         expected_change_pct, price_at_signal, confidence, confidence_score,
+         expected_change_pct, price_at_signal, stop_loss_pct, stop_price,
+         confidence, confidence_score,
          sentiment_score, sentiment_label, trigger_news, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AKTIF')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AKTIF')
     """, (
         signal["ticker"], signal["ticker_yf"], signal["direction"],
         signal["start_date"], signal["end_date"],
         signal["expected_change_pct"], signal.get("current_price"),
+        signal.get("stop_loss_pct"), signal.get("stop_price"),
         signal["confidence"], signal["confidence_score"],
         signal["sentiment_score"], signal["sentiment_label"],
         signal["trigger_news"]
@@ -313,13 +392,83 @@ def save_signal(signal):
 
 # ─── Sinyal Takip (Sonuç Kontrolü) ──────────────────────────
 
+def check_stop_loss():
+    """
+    Aktif sinyallerin stop-loss seviyelerini kontrol eder.
+    Fiyat stop seviyesine ulaştıysa sinyali 'STOP' olarak işaretler.
+    """
+    conn = get_connection()
+    active_signals = conn.execute("""
+        SELECT * FROM signals WHERE status = 'AKTIF'
+    """).fetchall()
+    
+    stopped = []
+    for sig in active_signals:
+        ticker_yf = sig["ticker_yf"]
+        if not ticker_yf or not sig["price_at_signal"]:
+            continue
+        
+        # Son fiyatı al
+        price_row = conn.execute(
+            "SELECT close FROM price_data WHERE ticker=? ORDER BY date DESC LIMIT 1",
+            (ticker_yf,)
+        ).fetchone()
+        
+        if not price_row:
+            continue
+        
+        current_price = price_row["close"]
+        start_price = sig["price_at_signal"]
+        actual_change = round(((current_price - start_price) / start_price) * 100, 2)
+        
+        is_up = "YÜKSELİŞ" in (sig["direction"] or "")
+        stop_loss_pct = sig["stop_loss_pct"] or (abs(sig["expected_change_pct"] or 3) * 0.5)
+        
+        # Stop-loss kontrolü
+        hit_stop = False
+        if is_up and actual_change < -stop_loss_pct:
+            hit_stop = True
+        elif not is_up and actual_change > stop_loss_pct:
+            hit_stop = True
+        
+        if hit_stop:
+            conn.execute("""
+                UPDATE signals SET 
+                    status='STOP', 
+                    actual_change_pct=?,
+                    price_at_end=?,
+                    result='🛑 STOP OLDU'
+                WHERE id=?
+            """, (actual_change, current_price, sig["id"]))
+            
+            stopped.append({
+                "id": sig["id"],
+                "ticker": sig["ticker"],
+                "direction": sig["direction"],
+                "expected": sig["expected_change_pct"],
+                "actual": actual_change,
+                "stop_loss_pct": stop_loss_pct,
+            })
+            print(f"  🛑 STOP: {sig['ticker']} - Beklenen: %{sig['expected_change_pct']:+.2f}, Gerçek: %{actual_change:+.2f}")
+    
+    if stopped:
+        conn.commit()
+        # Stop olduğunda backtest çalıştır (öğrensin)
+        run_backtest_learning()
+    conn.close()
+    return stopped
+
+
 def check_signal_results():
     """
     Süresi dolan sinyallerin sonuçlarını kontrol eder.
     Gerçek fiyatla karşılaştırıp BAŞARILI/BAŞARISIZ olarak işaretler.
+    Ayrıca stop-loss kontrolü yapar.
     """
+    # Önce stop-loss kontrolü
+    check_stop_loss()
+    
     conn = get_connection()
-    today = datetime.now().strftime("%d.%m.%Y")
     
     # Süresi dolmuş ama henüz kontrol edilmemiş sinyaller
     active_signals = conn.execute("""
@@ -355,19 +504,21 @@ def check_signal_results():
         # Yön doğru mu?
         expected = sig["expected_change_pct"]
         if (expected > 0 and actual_change > 0) or (expected < 0 and actual_change < 0):
-            result = "✅ BAŞARILI"
+            result = "✅ KAZANDI"
+            status = "KAZANDI"
         else:
             result = "❌ BAŞARISIZ"
+            status = "TAMAMLANDI"
         
         # Güncelle
         conn.execute("""
             UPDATE signals SET 
-                status='TAMAMLANDI', 
+                status=?, 
                 actual_change_pct=?,
                 price_at_end=?,
                 result=?
             WHERE id=?
-        """, (actual_change, end_price, result, sig["id"]))
+        """, (status, actual_change, end_price, result, sig["id"]))
         
         results.append({
             "id": sig["id"],
@@ -380,6 +531,11 @@ def check_signal_results():
     
     conn.commit()
     conn.close()
+    
+    # Her kontrol sonrası backtest çalıştır
+    if results:
+        run_backtest_learning()
+    
     return results
 
 
@@ -396,7 +552,7 @@ def get_active_signals():
 
 
 def get_completed_signals(limit=50):
-    """Tamamlanmış sinyalleri döndürür."""
+    """Tamamlanmış sinyalleri döndürür (BAŞARISIZ olanlar)."""
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM signals WHERE status = 'TAMAMLANDI' ORDER BY created_at DESC LIMIT ?
@@ -405,22 +561,181 @@ def get_completed_signals(limit=50):
     return [dict(r) for r in rows]
 
 
-def get_signal_success_rate():
-    """Sinyal başarı oranını hesaplar."""
+def get_stopped_signals(limit=50):
+    """Stop-loss tetiklenen sinyalleri döndürür."""
     conn = get_connection()
-    total = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status='TAMAMLANDI'").fetchone()["c"]
-    success = conn.execute("SELECT COUNT(*) as c FROM signals WHERE result LIKE '%BAŞARILI%' AND status='TAMAMLANDI'").fetchone()["c"]
+    rows = conn.execute("""
+        SELECT * FROM signals WHERE status = 'STOP' ORDER BY created_at DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_won_signals(limit=50):
+    """Kazanan sinyalleri döndürür."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM signals WHERE status = 'KAZANDI' ORDER BY created_at DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_signal_success_rate():
+    """Sinyal başarı oranını hesaplar (tüm tamamlanan sinyaller üzerinden)."""
+    conn = get_connection()
+    total = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status IN ('TAMAMLANDI','KAZANDI','STOP')").fetchone()["c"]
+    won = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status='KAZANDI'").fetchone()["c"]
+    stopped = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status='STOP'").fetchone()["c"]
+    failed = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status='TAMAMLANDI'").fetchone()["c"]
     conn.close()
     
     if total == 0:
-        return {"total": 0, "success": 0, "rate": 0}
+        return {"total": 0, "success": 0, "stopped": 0, "failed": 0, "rate": 0}
     
     return {
         "total": total,
-        "success": success,
-        "fail": total - success,
-        "rate": round(success / total * 100, 1)
+        "success": won,
+        "stopped": stopped,
+        "failed": failed,
+        "rate": round(won / total * 100, 1)
     }
+
+
+# ─── Backtest Öğrenme Sistemi ─────────────────────────────────
+
+def run_backtest_learning():
+    """
+    Geçmiş sinyal sonuçlarını analiz eder ve algoritmayı ayarlar.
+    Bu fonksiyon, hangi tür sinyallerin başarılı/başarısız olduğunu öğrenir
+    ve gelecek sinyalleri buna göre optimize eder.
+    """
+    global backtest_adjustments
+    
+    conn = get_connection()
+    
+    # Tamamlanan tüm sinyaller
+    all_completed = conn.execute("""
+        SELECT * FROM signals WHERE status IN ('TAMAMLANDI', 'KAZANDI', 'STOP')
+    """).fetchall()
+    
+    if len(all_completed) < 3:
+        conn.close()
+        return  # Yeterli veri yok
+    
+    won = [dict(s) for s in all_completed if s["status"] == "KAZANDI"]
+    stopped = [dict(s) for s in all_completed if s["status"] == "STOP"]
+    failed = [dict(s) for s in all_completed if s["status"] == "TAMAMLANDI"]
+    
+    total = len(all_completed)
+    win_count = len(won)
+    win_rate = win_count / total * 100 if total > 0 else 0
+    
+    # ─── Hisse bazlı analiz ──────────────────────────────
+    ticker_stats = {}
+    for s in all_completed:
+        t = s["ticker"]
+        if t not in ticker_stats:
+            ticker_stats[t] = {"won": 0, "lost": 0, "total": 0}
+        ticker_stats[t]["total"] += 1
+        if s["status"] == "KAZANDI":
+            ticker_stats[t]["won"] += 1
+        else:
+            ticker_stats[t]["lost"] += 1
+    
+    # Sürekli kaybeden hisseler (3+ sinyal, %25'ten az kazanma)
+    avoid = []
+    favor = []
+    for t, st in ticker_stats.items():
+        if st["total"] >= 3:
+            rate = st["won"] / st["total"] * 100
+            if rate < 25:
+                avoid.append(t)
+            elif rate > 70:
+                favor.append(t)
+    
+    # ─── Parametre ayarlamaları ──────────────────────────
+    
+    # Win rate düşükse -> daha yüksek eşik, daha geniş stop-loss
+    if win_rate < 40:
+        conf_mult = 0.8
+        sl_mult = 1.3  # Daha geniş stop-loss
+        exp_mult = 0.85
+        min_threshold = 2.0  # Sadece çok güçlü sinyaller
+    elif win_rate < 55:
+        conf_mult = 0.9
+        sl_mult = 1.1
+        exp_mult = 0.95
+        min_threshold = 1.7
+    elif win_rate > 70:
+        conf_mult = 1.1
+        sl_mult = 0.9  # Daha sıkı stop-loss (risk alabilir)
+        exp_mult = 1.1
+        min_threshold = 1.3  # Daha fazla sinyal üretebilir
+    else:
+        conf_mult = 1.0
+        sl_mult = 1.0
+        exp_mult = 1.0
+        min_threshold = 1.5
+    
+    # Ortalama kazanç/kayıp analizi
+    avg_win = 0
+    avg_loss = 0
+    if won:
+        avg_win = sum(abs(s.get("actual_change_pct", 0) or 0) for s in won) / len(won)
+    if stopped or failed:
+        losses = stopped + failed
+        avg_loss = sum(abs(s.get("actual_change_pct", 0) or 0) for s in losses) / len(losses)
+    
+    # Stop-loss çok erken tetikleniyorsa genişlet
+    if stopped and len(stopped) > len(won):
+        sl_mult *= 1.2
+    
+    # Sonuçları kaydet
+    backtest_adjustments.update({
+        "confidence_multiplier": round(conf_mult, 2),
+        "stop_loss_multiplier": round(sl_mult, 2),
+        "expected_change_multiplier": round(exp_mult, 2),
+        "min_score_threshold": round(min_threshold, 2),
+        "avoid_tickers": avoid,
+        "favor_tickers": favor,
+        "last_backtest": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "total_analyzed": total,
+        "win_rate": round(win_rate, 1),
+    })
+    
+    # Backtest sonucunu veritabanına kaydet
+    best_ticker = max(ticker_stats, key=lambda t: ticker_stats[t]["won"] / max(ticker_stats[t]["total"], 1)) if ticker_stats else None
+    worst_ticker = min(ticker_stats, key=lambda t: ticker_stats[t]["won"] / max(ticker_stats[t]["total"], 1)) if ticker_stats else None
+    
+    try:
+        conn.execute("""
+            INSERT INTO backtest_results 
+            (total_signals, won_signals, stopped_signals, win_rate, avg_win_pct, avg_loss_pct,
+             best_ticker, worst_ticker, adjustments, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            total, win_count, len(stopped), round(win_rate, 1),
+            round(avg_win, 2), round(avg_loss, 2),
+            best_ticker, worst_ticker,
+            json.dumps(backtest_adjustments),
+            f"Kaçınılan: {avoid}, Favori: {favor}"
+        ))
+        conn.commit()
+    except Exception as e:
+        print(f"  [BACKTEST] Kayıt hatası: {e}")
+    
+    conn.close()
+    
+    print(f"  📊 BACKTEST: {total} sinyal analiz edildi | Win Rate: %{win_rate:.1f} | "
+          f"Kaçınılan: {len(avoid)} | Favori: {len(favor)}")
+    
+    return backtest_adjustments
+
+
+def get_backtest_summary():
+    """Backtest öğrenme özetini döndürür."""
+    return backtest_adjustments.copy()
 
 
 # ─── Sinyal Yazdırma ─────────────────────────────────────────

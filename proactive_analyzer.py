@@ -155,6 +155,16 @@ def analyze_ticker_technicals(ticker_yf):
     else:
         confidence = "DÜŞÜK ⭐"
 
+    # Stop-loss hesapla
+    stop_loss_pct = round(abs(expected_change) * 0.5, 2)
+    stop_loss_pct = max(stop_loss_pct, 1.0)
+    stop_loss_pct = min(stop_loss_pct, 8.0)
+
+    if "YÜKSELİŞ" in direction:
+        stop_price = round(current_price * (1 - stop_loss_pct / 100), 2)
+    else:
+        stop_price = round(current_price * (1 + stop_loss_pct / 100), 2)
+
     signal = {
         "ticker": ticker_code,
         "ticker_yf": ticker_yf,
@@ -163,6 +173,8 @@ def analyze_ticker_technicals(ticker_yf):
         "end_date": add_business_days(today, 5).strftime("%d.%m.%Y"),
         "expected_change_pct": expected_change,
         "current_price": current_price,
+        "stop_loss_pct": stop_loss_pct,
+        "stop_price": stop_price,
         "confidence": confidence,
         "confidence_score": round(confidence_val, 2),
         "sentiment_score": round(score / 10, 2),
