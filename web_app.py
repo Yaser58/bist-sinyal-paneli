@@ -237,7 +237,7 @@ DASHBOARD_HTML = """
         .bist-badge.closed{background:var(--rg);color:var(--r);border:1px solid rgba(248,81,73,.2)}
         .dot{width:7px;height:7px;border-radius:50%;background:var(--g);animation:blink 2s infinite}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-        .server-time{font-size:11px;color:var(--t3);font-weight:500}
+        .server-time{font-size:14px;color:var(--p);font-weight:800;letter-spacing:1px;text-shadow:0 0 10px rgba(188,140,255,0.4);border:1px solid rgba(188,140,255,0.3);padding:4px 10px;border-radius:6px;background:rgba(188,140,255,0.1)}
 
         /* ── NAV TABS ── */
         .nav-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--bg2);border-bottom:1px solid var(--br);overflow-x:auto}
@@ -353,7 +353,7 @@ DASHBOARD_HTML = """
 <body>
     <!-- HEADER -->
     <div class="hdr">
-        <h1>📡 VİOP Sinyal Paneli v4.2</h1>
+        <h1>📡 Kapar Yazılım Ltd.Şti</h1>
         <div class="hdr-right">
             <span class="bist-badge {{ 'open' if bist.open else 'closed' }}">
                 {{ bist.emoji }} BIST {{ bist.status }}
