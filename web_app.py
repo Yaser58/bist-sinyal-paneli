@@ -718,14 +718,11 @@ DASHBOARD_HTML = """
         {% else %}
         <div class="empty">📭 Henüz tamamlanmış işlem bulunmuyor.</div>
         {% endif %}
-    </div>
-    {% endif %}
-
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     let currentTicker = null;
     let currentInterval = '15';
-    let tvWidget = null;
+    let chartObj = null;
 
     // Aktif sinyaller verisi
     const signalsData = {
@@ -751,6 +748,8 @@ DASHBOARD_HTML = """
         });
     }
 
+    let candleSeries = null;
+
     function loadChart(ticker){
         currentTicker = ticker;
         
@@ -759,28 +758,52 @@ DASHBOARD_HTML = """
         const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
         if(activeCard) activeCard.classList.add('active');
         
-        // VİOP vadeli sembolleri TradingView tarafından embed edilmeye yasaklıdır.
-        // Bu yüzden mecburen SPOT grafiğini gösteriyoruz.
-        const tvSymbol = 'BIST:' + ticker;
+        document.getElementById('chartTickerName').textContent = ticker + ' (Sistem Canlı Grafiği)';
         
-        // TradingView JS Widget kullanımı
-        document.getElementById('chartContainer').innerHTML = ''; // Önceki temizle
-        tvWidget = new TradingView.widget({
-            "autosize": true,
-            "symbol": tvSymbol,
-            "interval": currentInterval,
-            "timezone": "Europe/Istanbul",
-            "theme": "dark",
-            "style": "1",
-            "locale": "tr",
-            "enable_publishing": false,
-            "hide_side_toolbar": false,
-            "allow_symbol_change": true,
-            "container_id": "chartContainer"
-        });
+        const container = document.getElementById('chartContainer');
+        container.innerHTML = '';
         
-        // Grafik başlığını güncelle
-        document.getElementById('chartTickerName').textContent = ticker + ' (SPOT Grafik - Analizler VİOP)';
+        // Yükleniyor...
+        const loader = document.createElement('div');
+        loader.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px";
+        loader.textContent = `⌛ ${ticker} verisi alınıyor...`;
+        container.appendChild(loader);
+
+        fetch(`/api/chart/${ticker}?interval=${currentInterval}`)
+            .then(res => res.json())
+            .then(res => {
+                container.innerHTML = '';
+                if(res.error || !res.data) {
+                    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--r);font-size:14px">❌ Veri çekilemedi: ${res.error || 'Bilinmeyen hata'}</div>`;
+                    return;
+                }
+                
+                chartObj = LightweightCharts.createChart(container, {
+                    width: container.clientWidth,
+                    height: container.clientHeight,
+                    layout: { backgroundColor: '#06080f', textColor: '#8b949e' },
+                    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+                    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    rightPriceScale: { borderColor: '#21262d' },
+                    timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false }
+                });
+                
+                candleSeries = chartObj.addCandlestickSeries({
+                    upColor: '#2ea043', downColor: '#f85149', borderVisible: false,
+                    wickUpColor: '#2ea043', wickDownColor: '#f85149'
+                });
+                
+                candleSeries.setData(res.data);
+                
+                new ResizeObserver(entries => {
+                    if (entries.length === 0 || entries[0].target !== container) return;
+                    const newRect = entries[0].contentRect;
+                    chartObj.applyOptions({ height: newRect.height, width: newRect.width });
+                }).observe(container);
+            })
+            .catch(err => {
+                container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--r);font-size:14px">❌ Bağlantı hatası</div>`;
+            });
         
         // Sinyal bilgi panelini güncelle
         updateSignalPanel(ticker);
@@ -1007,6 +1030,52 @@ def news_page():
 @app.route("/api/signals")
 def api_signals():
     return jsonify(get_active_signals())
+
+import yfinance as yf
+import pandas as pd
+
+@app.route("/api/chart/<ticker>")
+def chart_data(ticker):
+    inter_val = request.args.get('interval', '15')
+    interval_map = {'1': '1m', '5': '5m', '15': '15m', '60': '1h', 'D': '1d', 'W': '1wk'}
+    period_map = {'1m': '6d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': '1y', '1wk': '5y'}
+    yf_inter = interval_map.get(inter_val, '15m')
+    yf_period = period_map.get(yf_inter, '60d')
+    
+    try:
+        df = yf.download(ticker + ".IS", period=yf_period, interval=yf_inter, progress=False)
+        if df.empty:
+            return jsonify({"error": "Veri yok"}), 404
+            
+        if isinstance(df.columns, pd.MultiIndex):
+            # Try to correctly drop the Ticker level from MultiIndex
+            df.columns = df.columns.droplevel(1)
+            
+        df = df.reset_index()
+        time_col = df.columns[0]
+        data = []
+        for _, row in df.iterrows():
+            if pd.isna(row.get('Open', 0)) or pd.isna(row.get('Close', 0)): continue
+            if hasattr(row[time_col], 'timestamp'):
+                unix_time = int(row[time_col].timestamp())
+            else:
+                unix_time = int(pd.to_datetime(row[time_col]).timestamp())
+                
+            # Yahoo Finance'den NaN veya 0 değer gelirse grafiği bozmasın
+            ot = float(row['Open'])
+            if pd.isna(ot) or ot == 0: continue
+            
+            data.append({
+                "time": unix_time,
+                "open": ot,
+                "high": float(row['High']),
+                "low": float(row['Low']),
+                "close": float(row['Close'])
+            })
+            
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/prices")
 def api_prices():
