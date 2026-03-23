@@ -397,7 +397,7 @@ DASHBOARD_HTML = """
         </div>
         <div class="ticker-grid" id="tickerGrid">
             {% for p in prices %}
-            <div class="tk" data-ticker="{{ p.ticker }}" onclick="loadChart('{{ p.ticker }}')">
+            <div class="tk" data-ticker="{{ p.ticker }}">
                 <div class="tk-top">
                     <span class="tk-code">{{ p.ticker }}</span>
                     <span class="tk-change {{ 'up' if p.change_pct >= 0 else 'dn' }}">
@@ -413,36 +413,6 @@ DASHBOARD_HTML = """
             <div class="empty">Fiyat verisi yükleniyor...</div>
             {% endif %}
         </div>
-    </div>
-
-    <!-- TRADINGVIEW CHART -->
-    <div class="chart-section" id="chartSection">
-        <div class="chart-header">
-            <h2>📊 Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
-            <div class="chart-tabs">
-                <div class="chart-tab" onclick="changeInterval('1',this)">1dk</div>
-                <div class="chart-tab" onclick="changeInterval('5',this)">5dk</div>
-                <div class="chart-tab active" onclick="changeInterval('15',this)">15dk</div>
-                <div class="chart-tab" onclick="changeInterval('60',this)">1sa</div>
-                <div class="chart-tab" onclick="changeInterval('D',this)">Günlük</div>
-                <div class="chart-tab" onclick="changeInterval('W',this)">Haftalık</div>
-            </div>
-        </div>
-        <div style="display:flex;gap:12px;align-items:stretch">
-            <div class="chart-container" id="chartContainer" style="flex:1">
-                <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px">
-                    👆 Yukarıdan bir hisseye tıklayarak canlı grafiği görüntüleyin
-                </div>
-            </div>
-            <!-- Sinyal Bilgi Paneli -->
-            <div id="signalInfoPanel" style="width:200px;background:var(--bg3);border:1px solid var(--br);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px;flex-shrink:0">
-                <div style="font-size:12px;font-weight:800;color:var(--b);text-align:center;border-bottom:1px solid var(--br);padding-bottom:8px" id="sigPanelTitle">📌 Sinyal Bilgisi</div>
-                <div id="sigPanelContent" style="font-size:11px;color:var(--t3);text-align:center;padding:20px 0">
-                    Hisse seçin
-                </div>
-            </div>
-        </div>
-        <div class="chart-hint">💡 Hisse kartına tıklayarak grafiği değiştirebilirsiniz</div>
     </div>
 
     <!-- ACTIVE SIGNALS -->
@@ -718,29 +688,10 @@ DASHBOARD_HTML = """
         {% else %}
         <div class="empty">📭 Henüz tamamlanmış işlem bulunmuyor.</div>
         {% endif %}
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    </div>
+    {% endif %}
+
     <script>
-    let currentTicker = null;
-    let currentInterval = '15';
-    let chartObj = null;
-
-    // Aktif sinyaller verisi
-    const signalsData = {
-        {% for sig in active_signals %}
-        "{{ sig.ticker }}": {
-            direction: "{{ sig.direction }}",
-            price_at_signal: {{ sig.price_at_signal or 0 }},
-            expected_change_pct: {{ sig.expected_change_pct or 0 }},
-            stop_price: {{ sig.stop_price or 0 }},
-            stop_loss_pct: {{ sig.stop_loss_pct or 0 }},
-            target: {{ (sig.price_at_signal or 0) * (1 + (sig.expected_change_pct or 0)/100) }},
-            confidence: "{{ sig.confidence or '?' }}",
-            start_date: "{{ sig.start_date }}",
-            end_date: "{{ sig.end_date }}"
-        },
-        {% endfor %}
-    };
-
     function filterTickers(){
         const q=document.getElementById('searchInput').value.toUpperCase();
         document.querySelectorAll('.tk').forEach(el=>{
@@ -748,127 +699,7 @@ DASHBOARD_HTML = """
         });
     }
 
-    let candleSeries = null;
-
-    function loadChart(ticker){
-        currentTicker = ticker;
-        
-        // Aktif kart vurgulama
-        document.querySelectorAll('.tk').forEach(el=>el.classList.remove('active'));
-        const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
-        if(activeCard) activeCard.classList.add('active');
-        
-        document.getElementById('chartTickerName').textContent = ticker + ' (Sistem Canlı Grafiği)';
-        
-        const container = document.getElementById('chartContainer');
-        container.innerHTML = '';
-        
-        // Yükleniyor...
-        const loader = document.createElement('div');
-        loader.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px";
-        loader.textContent = `⌛ ${ticker} verisi alınıyor...`;
-        container.appendChild(loader);
-
-        fetch(`/api/chart/${ticker}?interval=${currentInterval}`)
-            .then(res => res.json())
-            .then(res => {
-                container.innerHTML = '';
-                if(res.error || !res.data) {
-                    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--r);font-size:14px">❌ Veri çekilemedi: ${res.error || 'Bilinmeyen hata'}</div>`;
-                    return;
-                }
-                
-                chartObj = LightweightCharts.createChart(container, {
-                    width: container.clientWidth,
-                    height: container.clientHeight,
-                    layout: { backgroundColor: '#06080f', textColor: '#8b949e' },
-                    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
-                    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                    rightPriceScale: { borderColor: '#21262d' },
-                    timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false }
-                });
-                
-                candleSeries = chartObj.addCandlestickSeries({
-                    upColor: '#2ea043', downColor: '#f85149', borderVisible: false,
-                    wickUpColor: '#2ea043', wickDownColor: '#f85149'
-                });
-                
-                candleSeries.setData(res.data);
-                
-                new ResizeObserver(entries => {
-                    if (entries.length === 0 || entries[0].target !== container) return;
-                    const newRect = entries[0].contentRect;
-                    chartObj.applyOptions({ height: newRect.height, width: newRect.width });
-                }).observe(container);
-            })
-            .catch(err => {
-                container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--r);font-size:14px">❌ Bağlantı hatası</div>`;
-            });
-        
-        // Sinyal bilgi panelini güncelle
-        updateSignalPanel(ticker);
-        
-        // Grafik bölümüne scroll
-        document.getElementById('chartSection').scrollIntoView({behavior:'smooth', block:'nearest'});
-    }
-
-    function updateSignalPanel(ticker){
-        const panel = document.getElementById('sigPanelContent');
-        const sig = signalsData[ticker];
-        
-        if(sig && sig.price_at_signal > 0){
-            const isUp = sig.direction.includes('YÜKSEL');
-            const dirColor = isUp ? 'var(--g)' : 'var(--r)';
-            const dirText = isUp ? '▲ YÜKSELİŞ' : '▼ DÜŞÜŞ';
-            
-            panel.innerHTML = `
-                <div style="text-align:center;margin-bottom:8px">
-                    <span style="color:${dirColor};font-weight:800;font-size:13px">${dirText}</span>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:6px">
-                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
-                        <span style="color:var(--t3)">🟢 Giriş</span>
-                        <span style="font-weight:700;color:var(--t1)">${sig.price_at_signal.toFixed(2)} ₺</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
-                        <span style="color:var(--t3)">🎯 Hedef</span>
-                        <span style="font-weight:700;color:var(--g)">${sig.target.toFixed(2)} ₺</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
-                        <span style="color:var(--t3)">🛑 Stop</span>
-                        <span style="font-weight:700;color:var(--r)">${sig.stop_price.toFixed(2)} ₺</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
-                        <span style="color:var(--t3)">%</span>
-                        <span style="font-weight:700;color:${dirColor}">${sig.expected_change_pct > 0 ? '+' : ''}${sig.expected_change_pct.toFixed(2)}%</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
-                        <span style="color:var(--t3)">🛡</span>
-                        <span style="font-weight:600;color:var(--t2);font-size:10px">${sig.confidence}</span>
-                    </div>
-                    <div style="font-size:9px;color:var(--t3);text-align:center;margin-top:4px">
-                        ${sig.start_date} → ${sig.end_date}
-                    </div>
-                </div>
-            `;
-        } else {
-            panel.innerHTML = '<div style="color:var(--t3);text-align:center;padding:30px 0;font-size:11px">Bu hisse için<br>aktif sinyal yok</div>';
-        }
-    }
-
-    function changeInterval(interval, el){
-        currentInterval = interval;
-        document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
-        el.classList.add('active');
-        if(currentTicker) loadChart(currentTicker);
-    }
-
-    // İlk hissenin grafiğini otomatik yükle
-    {% if prices %}
-    window.addEventListener('DOMContentLoaded', function(){
-        loadChart('{{ prices[0].ticker if prices else "THYAO" }}');
-    });
-    {% endif %}
+    // İlk hissenin grafiğini otomatik yükle (kaldırıldı)
 
     // Auto refresh prices with AJAX (live)
     {% if bist.open %}
@@ -1030,52 +861,6 @@ def news_page():
 @app.route("/api/signals")
 def api_signals():
     return jsonify(get_active_signals())
-
-import yfinance as yf
-import pandas as pd
-
-@app.route("/api/chart/<ticker>")
-def chart_data(ticker):
-    inter_val = request.args.get('interval', '15')
-    interval_map = {'1': '1m', '5': '5m', '15': '15m', '60': '1h', 'D': '1d', 'W': '1wk'}
-    period_map = {'1m': '6d', '5m': '60d', '15m': '60d', '1h': '730d', '1d': '1y', '1wk': '5y'}
-    yf_inter = interval_map.get(inter_val, '15m')
-    yf_period = period_map.get(yf_inter, '60d')
-    
-    try:
-        df = yf.download(ticker + ".IS", period=yf_period, interval=yf_inter, progress=False)
-        if df.empty:
-            return jsonify({"error": "Veri yok"}), 404
-            
-        if isinstance(df.columns, pd.MultiIndex):
-            # Try to correctly drop the Ticker level from MultiIndex
-            df.columns = df.columns.droplevel(1)
-            
-        df = df.reset_index()
-        time_col = df.columns[0]
-        data = []
-        for _, row in df.iterrows():
-            if pd.isna(row.get('Open', 0)) or pd.isna(row.get('Close', 0)): continue
-            if hasattr(row[time_col], 'timestamp'):
-                unix_time = int(row[time_col].timestamp())
-            else:
-                unix_time = int(pd.to_datetime(row[time_col]).timestamp())
-                
-            # Yahoo Finance'den NaN veya 0 değer gelirse grafiği bozmasın
-            ot = float(row['Open'])
-            if pd.isna(ot) or ot == 0: continue
-            
-            data.append({
-                "time": unix_time,
-                "open": ot,
-                "high": float(row['High']),
-                "low": float(row['Low']),
-                "close": float(row['Close'])
-            })
-            
-        return jsonify({"data": data})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/prices")
 def api_prices():
