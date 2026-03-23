@@ -129,7 +129,7 @@ def get_live_prices(search=None, limit=50):
 # ─── Arka Plan Worker ────────────────────────────────────────
 
 def background_worker():
-    """Sürekli çalışan arka plan işçisi."""
+    """Sürekli çalışan arka plan işçisi. BIST açıkken daha sık çalışır."""
     global worker_status
     worker_status["running"] = True
 
@@ -137,39 +137,52 @@ def background_worker():
         try:
             worker_status["cycle"] += 1
             worker_status["last_check"] = datetime.now(TZ_TURKEY).strftime("%d.%m.%Y %H:%M:%S")
-            print(f"\n[WORKER] Döngü #{worker_status['cycle']} - {worker_status['last_check']}")
+            
+            bist = get_bist_status()
+            is_open = bist["open"]
+            
+            print(f"\n[WORKER] Döngü #{worker_status['cycle']} - {worker_status['last_check']} - BIST: {'AÇIK' if is_open else 'KAPALI'}")
 
+            # Her döngüde fiyat güncelle
             fetch_latest_prices()
+            
+            # Stop-loss ve sinyal kontrolü her döngüde
             check_signal_results()
-            fetch_kap_notifications()
-            fetch_all_feeds()
+            
+            # Haber ve sinyal analizi her 5. döngüde (BIST açıkken)
+            # veya her döngüde (BIST kapalıyken)
+            do_news = (not is_open) or (worker_status["cycle"] % 5 == 1)
+            
+            if do_news:
+                fetch_kap_notifications()
+                fetch_all_feeds()
 
-            unprocessed = get_unprocessed_news()
-            for news in unprocessed:
-                result = process_news_item(news)
-                tickers_json = json.dumps(result["tickers"])
-                macro_json = json.dumps(result["macro_keywords"]) if result["macro_keywords"] else None
-                update_news_sentiment(
-                    news_id=result["news_id"],
-                    sentiment_score=result["sentiment_score"],
-                    sentiment_label=result["sentiment_label"],
-                    related_tickers=tickers_json,
-                    is_macro=result["is_macro"],
-                    macro_keywords=macro_json
-                )
-                if result["sentiment_label"] == "neutral" and not result["is_macro"]:
-                    continue
-                targets = result["tickers"]
-                if result["is_macro"] and not targets:
-                    sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
-                    worker_status["total_signals"] += len(sigs)
-                else:
-                    for tc in targets:
-                        sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
-                        if sig:
-                            worker_status["total_signals"] += 1
+                unprocessed = get_unprocessed_news()
+                for news in unprocessed:
+                    result = process_news_item(news)
+                    tickers_json = json.dumps(result["tickers"])
+                    macro_json = json.dumps(result["macro_keywords"]) if result["macro_keywords"] else None
+                    update_news_sentiment(
+                        news_id=result["news_id"],
+                        sentiment_score=result["sentiment_score"],
+                        sentiment_label=result["sentiment_label"],
+                        related_tickers=tickers_json,
+                        is_macro=result["is_macro"],
+                        macro_keywords=macro_json
+                    )
+                    if result["sentiment_label"] == "neutral" and not result["is_macro"]:
+                        continue
+                    targets = result["tickers"]
+                    if result["is_macro"] and not targets:
+                        sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
+                        worker_status["total_signals"] += len(sigs)
+                    else:
+                        for tc in targets:
+                            sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
+                            if sig:
+                                worker_status["total_signals"] += 1
 
-            if worker_status["cycle"] % 6 == 1:
+            if worker_status["cycle"] % 10 == 1:
                 tech_signals = run_proactive_scan()
                 for sig in tech_signals[:5]:
                     save_signal(sig)
@@ -183,7 +196,11 @@ def background_worker():
                 worker_status["errors"] = worker_status["errors"][-20:]
             print(f"[WORKER HATA] {e}")
 
-        time.sleep(FETCH_INTERVAL_MINUTES * 60)
+        # BIST açıkken 60 saniye, kapalıyken 5 dakika bekle
+        if bist["open"]:
+            time.sleep(60)     # 1 dakikada bir canlı fiyat
+        else:
+            time.sleep(FETCH_INTERVAL_MINUTES * 60)  # 5 dakikada bir
 
 
 # ─── HTML Template ────────────────────────────────────────────

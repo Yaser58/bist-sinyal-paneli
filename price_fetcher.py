@@ -1,7 +1,8 @@
 """
 BIST Haber Analiz Sistemi - Fiyat Verisi Çekici (Price Fetcher)
 ===============================================================
-Yahoo Finance üzerinden BIST hisselerinin geçmiş ve güncel fiyat verilerini çeker.
+Yahoo Finance üzerinden BIST hisselerinin geçmiş ve CANLI fiyat verilerini çeker.
+Canlı mod: Tüm hisseleri toplu olarak çeker (hızlı).
 """
 
 import yfinance as yf
@@ -74,15 +75,155 @@ def fetch_all_historical_prices():
     return total
 
 
-def fetch_latest_prices():
-    """Sadece son birkaç günün fiyat verilerini günceller (canlı kullanım için)."""
-    print(f"\n  🔄 Güncel fiyatlar güncelleniyor...")
+def fetch_realtime_prices():
+    """
+    Tüm BIST hisselerinin CANLI fiyatlarını toplu olarak çeker.
+    yf.download ile tek seferde tüm hisseleri çeker - çok daha hızlı.
+    Bugünün tarihiyle kaydeder.
+    """
+    print(f"\n  🔴 CANLI fiyatlar çekiliyor ({len(BIST_TICKERS)} hisse)...")
+    
+    try:
+        # Tüm hisseleri tek seferde toplu çek (çok hızlı!)
+        tickers_str = " ".join(BIST_TICKERS)
+        df = yf.download(
+            tickers_str,
+            period="1d",
+            interval="1m",
+            progress=False,
+            threads=True,
+            group_by="ticker"
+        )
+        
+        if df.empty:
+            print("  ⚠️  Toplu veri boş, tek tek çekiliyor...")
+            return fetch_latest_prices()
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        total = 0
+        
+        for ticker in BIST_TICKERS:
+            try:
+                # Çoklu ticker için kolon yapısı farklı
+                if len(BIST_TICKERS) > 1:
+                    ticker_clean = ticker.replace(".", "-")  # yfinance bazen . yerine - kullanır
+                    
+                    # Hem orijinal hem de temizlenmiş isimle dene
+                    ticker_data = None
+                    for t_name in [ticker, ticker_clean]:
+                        try:
+                            if t_name in df.columns.get_level_values(0):
+                                ticker_data = df[t_name]
+                                break
+                        except Exception:
+                            pass
+                    
+                    if ticker_data is None or ticker_data.empty:
+                        continue
+                else:
+                    ticker_data = df
+                
+                # NaN olmayan son satırı al (en güncel fiyat)
+                ticker_data = ticker_data.dropna(subset=["Close"])
+                if ticker_data.empty:
+                    continue
+                
+                last_row = ticker_data.iloc[-1]
+                
+                # Bugünün tüm verilerinden high/low hesapla
+                day_high = ticker_data["High"].max()
+                day_low = ticker_data["Low"].min()
+                day_open = ticker_data.iloc[0]["Open"]
+                last_close = last_row["Close"]
+                last_volume = int(ticker_data["Volume"].sum()) if "Volume" in ticker_data.columns else 0
+                
+                insert_price_data(
+                    ticker=ticker,
+                    date_str=today_str,
+                    open_p=round(float(day_open), 4),
+                    high=round(float(day_high), 4),
+                    low=round(float(day_low), 4),
+                    close=round(float(last_close), 4),
+                    volume=last_volume
+                )
+                total += 1
+                
+            except Exception as e:
+                # Sessizce devam et, hata çok fazla log üretmesin
+                pass
+        
+        print(f"  ✅ {total}/{len(BIST_TICKERS)} hisse canlı fiyat güncellendi.")
+        return total
+        
+    except Exception as e:
+        print(f"  [HATA] Toplu canlı fiyat hatası: {e}")
+        print(f"  🔄 Alternatif yöntem deneniyor...")
+        return fetch_latest_prices_fast()
+
+
+def fetch_latest_prices_fast():
+    """
+    Her hisseyi tek tek ama sadece bugünün verisini çeker.
+    fetch_realtime_prices başarısız olursa fallback olarak kullanılır.
+    """
+    print(f"\n  🔄 Hızlı fiyat güncelleme ({len(BIST_TICKERS)} hisse)...")
     total = 0
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
     for ticker in BIST_TICKERS:
-        count = fetch_historical_prices(ticker, days=7)
-        total += count
-    print(f"  ✅ {total} fiyat verisi güncellendi.")
+        try:
+            stock = yf.Ticker(ticker)
+            # Sadece bugünün verisi (hızlı)
+            df = stock.history(period="1d")
+            
+            if df.empty:
+                continue
+            
+            row = df.iloc[-1]
+            date_str = df.index[-1].strftime("%Y-%m-%d")
+            
+            insert_price_data(
+                ticker=ticker,
+                date_str=date_str,
+                open_p=round(row["Open"], 4),
+                high=round(row["High"], 4),
+                low=round(row["Low"], 4),
+                close=round(row["Close"], 4),
+                volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+            )
+            total += 1
+        except Exception:
+            pass
+    
+    print(f"  ✅ {total}/{len(BIST_TICKERS)} hisse güncellendi.")
     return total
+
+
+def fetch_latest_prices():
+    """
+    BIST açıkken canlı fiyat çeker, kapalıyken son kapanış verilerini günceller.
+    """
+    from datetime import timezone
+    
+    # Türkiye saati kontrolü
+    TZ_TURKEY = timezone(timedelta(hours=3))
+    now = datetime.now(TZ_TURKEY)
+    weekday = now.weekday()
+    current_minutes = now.hour * 60 + now.minute
+    
+    bist_open = 9 * 60 + 40   # 09:40
+    bist_close = 18 * 60 + 10  # 18:10
+    
+    is_market_open = (weekday < 5 and bist_open <= current_minutes <= bist_close)
+    
+    if is_market_open:
+        # Borsa açık - canlı dakikalık veri çek
+        print(f"  📊 BIST AÇIK - Canlı fiyatlar çekiliyor...")
+        return fetch_realtime_prices()
+    else:
+        # Borsa kapalı - son kapanış verisi yeterli
+        print(f"  🌙 BIST KAPALI - Son kapanış verileri güncelleniyor...")
+        return fetch_latest_prices_fast()
 
 
 def get_ticker_info(ticker):
@@ -106,11 +247,7 @@ if __name__ == "__main__":
     init_db()
     print("\n🚀 Fiyat verisi bağımsız çalıştırma modu\n")
 
-    # Sadece ilk 5 hisseyi test olarak çek
-    test_tickers = BIST_TICKERS[:5]
-    for t in test_tickers:
-        print(f"\n--- {t} ---")
-        count = fetch_historical_prices(t, days=30)
-        print(f"  {count} gün verisi çekildi.")
-        info = get_ticker_info(t)
-        print(f"  İsim: {info['name']}, Sektör: {info['sector']}")
+    # Canlı fiyat testi
+    print("--- Canlı Fiyat Testi ---")
+    count = fetch_latest_prices()
+    print(f"Toplam {count} hisse güncellendi.")
