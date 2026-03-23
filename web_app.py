@@ -353,7 +353,7 @@ DASHBOARD_HTML = """
 <body>
     <!-- HEADER -->
     <div class="hdr">
-        <h1>📡 BIST Sinyal Paneli v4.0</h1>
+        <h1>📡 VİOP Sinyal Paneli v4.2</h1>
         <div class="hdr-right">
             <span class="bist-badge {{ 'open' if bist.open else 'closed' }}">
                 {{ bist.emoji }} BIST {{ bist.status }}
@@ -373,6 +373,7 @@ DASHBOARD_HTML = """
         <a href="/" class="nav-tab {{ 'active' if page == 'main' else '' }}">📊 Ana Panel</a>
         <a href="/stopped" class="nav-tab stop-tab {{ 'active' if page == 'stopped' else '' }}">🛑 Stop Olan<span class="count">{{ stopped_count }}</span></a>
         <a href="/won" class="nav-tab won-tab {{ 'active' if page == 'won' else '' }}">✅ Kazanılan<span class="count">{{ won_count }}</span></a>
+        <a href="/news" class="nav-tab {{ 'active' if page == 'news' else '' }}">📰 Haberler<span class="count">{{ news_count }}</span></a>
         <a href="/backtest" class="nav-tab {{ 'active' if page == 'backtest' else '' }}">🧠 Backtest</a>
         <a href="/history" class="nav-tab {{ 'active' if page == 'history' else '' }}">📜 Geçmiş</a>
     </div>
@@ -391,7 +392,7 @@ DASHBOARD_HTML = """
     <!-- LIVE TICKER BAR -->
     <div class="ticker-section">
         <div class="ticker-header">
-            <h2>📈 Canlı Fiyatlar {% if bist.open %}(Canlı){% else %}(Son Kapanış){% endif %}</h2>
+            <h2>📈 VİOP Canlı Fiyatlar {% if bist.open %}(Canlı){% else %}(Son Kapanış){% endif %}</h2>
             <input type="text" class="search-box" placeholder="🔍 Hisse ara... (THYAO)" id="searchInput" onkeyup="filterTickers()">
         </div>
         <div class="ticker-grid" id="tickerGrid">
@@ -417,7 +418,7 @@ DASHBOARD_HTML = """
     <!-- TRADINGVIEW CHART -->
     <div class="chart-section" id="chartSection">
         <div class="chart-header">
-            <h2>📊 Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
+            <h2>📊 VİOP Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
             <div class="chart-tabs">
                 <div class="chart-tab active" onclick="changeInterval('1',this)">1dk</div>
                 <div class="chart-tab" onclick="changeInterval('5',this)">5dk</div>
@@ -626,6 +627,55 @@ DASHBOARD_HTML = """
         {% endif %}
     </div>
 
+    {% elif page == 'news' %}
+    <!-- NEWS PAGE -->
+    <div class="container">
+        <div class="sec-title">📰 Canlı Haberler</div>
+        {% if news_list %}
+        <div style="display:flex;flex-direction:column;gap:8px">
+            {% for n in news_list %}
+            <div style="background:var(--bg3);border:1px solid var(--br);border-radius:var(--radius);padding:14px 16px;transition:all .2s">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">
+                    <a href="{{ n.link }}" target="_blank" style="font-size:13px;font-weight:700;color:var(--t1);text-decoration:none;line-height:1.4;flex:1">{{ n.title }}</a>
+                    <div style="display:flex;gap:6px;flex-shrink:0">
+                        {% if n.sentiment_label == 'positive' %}
+                        <span class="badge ok">📈 Pozitif</span>
+                        {% elif n.sentiment_label == 'negative' %}
+                        <span class="badge no">📉 Negatif</span>
+                        {% else %}
+                        <span class="badge" style="background:var(--bg4);color:var(--t3)">➖ Nötr</span>
+                        {% endif %}
+                        {% if n.is_macro %}
+                        <span class="badge" style="background:rgba(188,140,255,.15);color:var(--p)">🌍 Makro</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if n.summary %}
+                <div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:6px">{{ n.summary[:200] }}{% if n.summary|length > 200 %}...{% endif %}</div>
+                {% endif %}
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--t3)">
+                    <div>
+                        <span style="font-weight:600">{{ n.source or 'Bilinmeyen' }}</span>
+                        {% if n.related_tickers %}
+                        <span style="margin-left:8px">🏷 {{ n.related_tickers }}</span>
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% if n.sentiment_score %}
+                        <span>Skor: <span style="color:{{ 'var(--g)' if n.sentiment_score > 0 else 'var(--r)' if n.sentiment_score < 0 else 'var(--t3)' }};font-weight:700">{{ '%.2f'|format(n.sentiment_score) }}</span></span>
+                        <span style="margin-left:8px">|</span>
+                        {% endif %}
+                        <span style="margin-left:4px">{{ n.published_at or n.fetched_at or '' }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">📭 Henüz haber bulunmuyor. Sistem haberleri topluyor...</div>
+        {% endif %}
+    </div>
+
     {% elif page == 'history' %}
     <!-- FULL HISTORY -->
     <div class="container">
@@ -662,7 +712,7 @@ DASHBOARD_HTML = """
     </div>
     {% endif %}
 
-    <div class="ft">BIST Sinyal Paneli v4.0 — Otomatik yenileme: 30sn — 🧠 Backtest aktif — ⚠️ Yatırım tavsiyesi değildir</div>
+    <div class="ft">VİOP Sinyal Paneli v4.2 — Otomatik yenileme: 30sn — 🧠 Backtest aktif — ⚠️ Yatırım tavsiyesi değildir</div>
 
     <script>
     let currentTicker = null;
@@ -684,11 +734,15 @@ DASHBOARD_HTML = """
         const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
         if(activeCard) activeCard.classList.add('active');
         
-        // TradingView widget URL (Advanced Chart embed)
+        // TradingView widget URL - VİOP vadeli grafik
         const container = document.getElementById('chartContainer');
-        const symbol = 'BIST:' + ticker;
+        // VİOP vadeli sembol: BIST:F_THYAO formatında dene, yoksa spot göster
+        const viopSymbol = 'BIST:' + ticker + '1!';
+        const spotSymbol = 'BIST:' + ticker;
+        // Önce VİOP continuous contract dene
+        const symbol = viopSymbol;
         
-        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${symbol}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22studies%22%3A%22MACD%40tv-basicstudies%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22bist-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${encodeURIComponent(symbol)}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22studies%22%3A%22MACD%40tv-basicstudies%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
         
         // Grafik bölümüne scroll
         document.getElementById('chartSection').scrollIntoView({behavior:'smooth', block:'nearest'});
@@ -743,12 +797,19 @@ def _get_common_context():
     backtest = get_backtest_summary()
     turkey_time = datetime.now(TZ_TURKEY).strftime("%H:%M:%S")
 
+    # Haber sayısı
+    conn = get_connection()
+    news_count_row = conn.execute("SELECT COUNT(*) as c FROM news WHERE processed=1").fetchone()
+    news_count = news_count_row["c"] if news_count_row else 0
+    conn.close()
+
     return {
         "active_count": len(get_active_signals()),
         "total_signals": worker_status["total_signals"],
         "success_rate": stats.get("rate", 0),
         "won_count": len(won),
         "stopped_count": len(stopped),
+        "news_count": news_count,
         "last_check": worker_status["last_check"],
         "cycle": worker_status["cycle"],
         "price_count": len(BIST_TICKERS),
@@ -834,6 +895,26 @@ def history_page():
         DASHBOARD_HTML,
         page="history",
         all_history=all_history,
+        **ctx,
+    )
+
+
+@app.route("/news")
+def news_page():
+    ctx = _get_common_context()
+
+    # Son 100 haberi getir
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM news ORDER BY fetched_at DESC LIMIT 100
+    """).fetchall()
+    conn.close()
+    news_list = [dict(r) for r in rows]
+
+    return render_template_string(
+        DASHBOARD_HTML,
+        page="news",
+        news_list=news_list,
         **ctx,
     )
 
