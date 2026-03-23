@@ -737,6 +737,14 @@ DASHBOARD_HTML = """
 
 # ─── Flask Routes ─────────────────────────────────────────────
 
+import traceback
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Tüm hataları ekranda göstermek için
+    tb = traceback.format_exc()
+    return f"<h1>Sistem Hatası (500)</h1><pre>{tb}</pre>", 500
+
 def _get_common_context():
     """Tüm sayfalar için ortak context verileri."""
     stats = get_signal_success_rate()
