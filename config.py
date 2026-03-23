@@ -7,7 +7,15 @@ Tüm ayarlar burada merkezi olarak yönetilir.
 import os
 
 # ─── Veritabanı ───────────────────────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(__file__), "bist_analiz.db")
+# Render'da kalıcı disk kullan (deploy'larda veri kaybolmasın)
+_RENDER_DATA_DIR = "/opt/render/project/data"
+if os.path.exists("/opt/render"):
+    # Render ortamında - kalıcı dizin oluştur
+    os.makedirs(_RENDER_DATA_DIR, exist_ok=True)
+    DB_PATH = os.path.join(_RENDER_DATA_DIR, "bist_analiz.db")
+else:
+    # Yerel geliştirme
+    DB_PATH = os.path.join(os.path.dirname(__file__), "bist_analiz.db")
 
 # ─── Haber Kaynakları (RSS) ──────────────────────────────────
 # KAP + genel ekonomi/dünya haberleri
