@@ -418,22 +418,31 @@ DASHBOARD_HTML = """
     <!-- TRADINGVIEW CHART -->
     <div class="chart-section" id="chartSection">
         <div class="chart-header">
-            <h2>📊 VİOP Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
+            <h2>📊 Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
             <div class="chart-tabs">
-                <div class="chart-tab active" onclick="changeInterval('1',this)">1dk</div>
+                <div class="chart-tab" onclick="changeInterval('1',this)">1dk</div>
                 <div class="chart-tab" onclick="changeInterval('5',this)">5dk</div>
-                <div class="chart-tab" onclick="changeInterval('15',this)">15dk</div>
+                <div class="chart-tab active" onclick="changeInterval('15',this)">15dk</div>
                 <div class="chart-tab" onclick="changeInterval('60',this)">1sa</div>
                 <div class="chart-tab" onclick="changeInterval('D',this)">Günlük</div>
                 <div class="chart-tab" onclick="changeInterval('W',this)">Haftalık</div>
             </div>
         </div>
-        <div class="chart-container" id="chartContainer">
-            <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px">
-                👆 Yukarıdan bir hisseye tıklayarak canlı grafiği görüntüleyin
+        <div style="display:flex;gap:12px;align-items:stretch">
+            <div class="chart-container" id="chartContainer" style="flex:1">
+                <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px">
+                    👆 Yukarıdan bir hisseye tıklayarak canlı grafiği görüntüleyin
+                </div>
+            </div>
+            <!-- Sinyal Bilgi Paneli -->
+            <div id="signalInfoPanel" style="width:200px;background:var(--bg3);border:1px solid var(--br);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+                <div style="font-size:12px;font-weight:800;color:var(--b);text-align:center;border-bottom:1px solid var(--br);padding-bottom:8px" id="sigPanelTitle">📌 Sinyal Bilgisi</div>
+                <div id="sigPanelContent" style="font-size:11px;color:var(--t3);text-align:center;padding:20px 0">
+                    Hisse seçin
+                </div>
             </div>
         </div>
-        <div class="chart-hint">💡 Hisse kartına tıklayarak grafiği değiştirebilirsiniz | TradingView tarafından sağlanmaktadır</div>
+        <div class="chart-hint">💡 Hisse kartına tıklayarak grafiği değiştirebilirsiniz</div>
     </div>
 
     <!-- ACTIVE SIGNALS -->
@@ -716,7 +725,24 @@ DASHBOARD_HTML = """
 
     <script>
     let currentTicker = null;
-    let currentInterval = '1';
+    let currentInterval = '15';
+
+    // Aktif sinyaller verisi
+    const signalsData = {
+        {% for sig in active_signals %}
+        "{{ sig.ticker }}": {
+            direction: "{{ sig.direction }}",
+            price_at_signal: {{ sig.price_at_signal or 0 }},
+            expected_change_pct: {{ sig.expected_change_pct or 0 }},
+            stop_price: {{ sig.stop_price or 0 }},
+            stop_loss_pct: {{ sig.stop_loss_pct or 0 }},
+            target: {{ (sig.price_at_signal or 0) * (1 + (sig.expected_change_pct or 0)/100) }},
+            confidence: "{{ sig.confidence or '?' }}",
+            start_date: "{{ sig.start_date }}",
+            end_date: "{{ sig.end_date }}"
+        },
+        {% endfor %}
+    };
 
     function filterTickers(){
         const q=document.getElementById('searchInput').value.toUpperCase();
@@ -734,18 +760,61 @@ DASHBOARD_HTML = """
         const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
         if(activeCard) activeCard.classList.add('active');
         
-        // TradingView widget URL - VİOP vadeli grafik
+        // TradingView widget - BIST spot sembol (MACD yok, temiz grafik)
         const container = document.getElementById('chartContainer');
-        // VİOP vadeli sembol: BIST:F_THYAO formatında dene, yoksa spot göster
-        const viopSymbol = 'BIST:' + ticker + '1!';
-        const spotSymbol = 'BIST:' + ticker;
-        // Önce VİOP continuous contract dene
-        const symbol = viopSymbol;
+        const symbol = 'BIST:' + ticker;
         
-        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${encodeURIComponent(symbol)}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22studies%22%3A%22MACD%40tv-basicstudies%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${symbol}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        
+        // Sinyal bilgi panelini güncelle
+        updateSignalPanel(ticker);
         
         // Grafik bölümüne scroll
         document.getElementById('chartSection').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+
+    function updateSignalPanel(ticker){
+        const panel = document.getElementById('sigPanelContent');
+        const sig = signalsData[ticker];
+        
+        if(sig && sig.price_at_signal > 0){
+            const isUp = sig.direction.includes('YÜKSEL');
+            const dirColor = isUp ? 'var(--g)' : 'var(--r)';
+            const dirText = isUp ? '▲ YÜKSELİŞ' : '▼ DÜŞÜŞ';
+            
+            panel.innerHTML = `
+                <div style="text-align:center;margin-bottom:8px">
+                    <span style="color:${dirColor};font-weight:800;font-size:13px">${dirText}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
+                        <span style="color:var(--t3)">🟢 Giriş</span>
+                        <span style="font-weight:700;color:var(--t1)">${sig.price_at_signal.toFixed(2)} ₺</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
+                        <span style="color:var(--t3)">🎯 Hedef</span>
+                        <span style="font-weight:700;color:var(--g)">${sig.target.toFixed(2)} ₺</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
+                        <span style="color:var(--t3)">🛑 Stop</span>
+                        <span style="font-weight:700;color:var(--r)">${sig.stop_price.toFixed(2)} ₺</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
+                        <span style="color:var(--t3)">%</span>
+                        <span style="font-weight:700;color:${dirColor}">${sig.expected_change_pct > 0 ? '+' : ''}${sig.expected_change_pct.toFixed(2)}%</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 8px;background:var(--bg2);border-radius:6px">
+                        <span style="color:var(--t3)">🛡</span>
+                        <span style="font-weight:600;color:var(--t2);font-size:10px">${sig.confidence}</span>
+                    </div>
+                    <div style="font-size:9px;color:var(--t3);text-align:center;margin-top:4px">
+                        ${sig.start_date} → ${sig.end_date}
+                    </div>
+                </div>
+            `;
+        } else {
+            panel.innerHTML = '<div style="color:var(--t3);text-align:center;padding:30px 0;font-size:11px">Bu hisse için<br>aktif sinyal yok</div>';
+        }
     }
 
     function changeInterval(interval, el){
