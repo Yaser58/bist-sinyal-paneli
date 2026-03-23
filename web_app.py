@@ -753,49 +753,22 @@ DASHBOARD_HTML = """
 
     function loadChart(ticker){
         currentTicker = ticker;
-        document.getElementById('chartTickerName').textContent = ticker;
         
         // Aktif kart vurgulama
         document.querySelectorAll('.tk').forEach(el=>el.classList.remove('active'));
         const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
         if(activeCard) activeCard.classList.add('active');
         
-        // VİOP vadeli kontrat hesapla
-        // VİOP vade ayları: 02, 04, 06, 08, 10, 12 (çift aylar)
-        const now = new Date();
-        const month = now.getMonth() + 1; // 1-12
-        const year = now.getFullYear() % 100; // 26
+        // VİOP vadeli sembol: TICKER1! formatı (TradingView continuous futures)
+        const viopSymbol = ticker + '1!';
         
-        // Bir sonraki çift ay (vade ayı)
-        const expiryMonths = [2, 4, 6, 8, 10, 12];
-        let nextExpiry = expiryMonths.find(m => m >= month);
-        let expiryYear = year;
-        if(!nextExpiry) {
-            nextExpiry = 2; // Sonraki yılın Şubat'ı
-            expiryYear = year + 1;
-        }
-        // Eğer vade ayındaysak ve ayın son haftasındaysak, sonraki vadeye geç
-        if(nextExpiry === month && now.getDate() > 25) {
-            const idx = expiryMonths.indexOf(nextExpiry);
-            if(idx < expiryMonths.length - 1) {
-                nextExpiry = expiryMonths[idx + 1];
-            } else {
-                nextExpiry = 2;
-                expiryYear = year + 1;
-            }
-        }
-        
-        const contractCode = String(nextExpiry).padStart(2,'0') + String(expiryYear).padStart(2,'0');
-        const viopSymbol = 'BIST:F_' + ticker + contractCode;
-        const spotSymbol = 'BIST:' + ticker;
-        
-        // VİOP vadeli sembolü kullan
+        // TradingView widget - VİOP futures grafik
         const container = document.getElementById('chartContainer');
         
-        container.innerHTML = `<iframe id="tvFrame" src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${encodeURIComponent(viopSymbol)}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22BIST%3A${viopSymbol}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22viop-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
         
         // Grafik başlığını güncelle
-        document.getElementById('chartTickerName').textContent = ticker + ' (VİOP: F_' + ticker + contractCode + ')';
+        document.getElementById('chartTickerName').textContent = ticker + ' (VİOP Vadeli)';
         
         // Sinyal bilgi panelini güncelle
         updateSignalPanel(ticker);
