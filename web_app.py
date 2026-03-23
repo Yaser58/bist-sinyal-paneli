@@ -323,14 +323,30 @@ DASHBOARD_HTML = """
         .bt-item .bt-value{font-size:18px;font-weight:800}
         .bt-notes{margin-top:12px;font-size:11px;color:var(--t3);padding:10px;background:var(--bg2);border-radius:8px;line-height:1.6}
 
+        /* ── TRADINGVIEW CHART ── */
+        .chart-section{padding:14px 24px;background:var(--bg2);border-bottom:1px solid var(--br)}
+        .chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+        .chart-header h2{font-size:13px;font-weight:700;color:var(--t2)}
+        .chart-ticker-name{font-size:14px;font-weight:800;color:var(--b)}
+        .chart-container{width:100%;height:450px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--br);background:var(--bg3)}
+        .chart-container iframe{width:100%;height:100%;border:none}
+        .chart-hint{font-size:11px;color:var(--t3);margin-top:6px;text-align:center}
+        .tk{cursor:pointer}
+        .tk.active{border-color:var(--b);background:var(--bg4);box-shadow:0 0 12px rgba(88,166,255,.15)}
+        .chart-tabs{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
+        .chart-tab{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;color:var(--t3);cursor:pointer;border:1px solid var(--br);background:var(--bg3);transition:all .2s}
+        .chart-tab:hover{color:var(--t1);border-color:var(--br2)}
+        .chart-tab.active{background:var(--bg4);color:var(--b);border-color:var(--b)}
+
         .empty{text-align:center;padding:30px;color:var(--t3);font-size:13px}
         .ft{text-align:center;padding:14px;color:var(--t3);font-size:10px;border-top:1px solid var(--br)}
 
         @media(max-width:768px){
-            .hdr,.stats,.ticker-section,.container,.nav-tabs{padding:10px 14px}
+            .hdr,.stats,.ticker-section,.container,.nav-tabs,.chart-section{padding:10px 14px}
             .sig-grid{grid-template-columns:1fr}
             .ticker-grid{grid-template-columns:repeat(2,1fr)}
             .stats{grid-template-columns:repeat(2,1fr)}
+            .chart-container{height:300px}
         }
     </style>
 </head>
@@ -380,7 +396,7 @@ DASHBOARD_HTML = """
         </div>
         <div class="ticker-grid" id="tickerGrid">
             {% for p in prices %}
-            <div class="tk" data-ticker="{{ p.ticker }}">
+            <div class="tk" data-ticker="{{ p.ticker }}" onclick="loadChart('{{ p.ticker }}')">
                 <div class="tk-top">
                     <span class="tk-code">{{ p.ticker }}</span>
                     <span class="tk-change {{ 'up' if p.change_pct >= 0 else 'dn' }}">
@@ -396,6 +412,27 @@ DASHBOARD_HTML = """
             <div class="empty">Fiyat verisi yükleniyor...</div>
             {% endif %}
         </div>
+    </div>
+
+    <!-- TRADINGVIEW CHART -->
+    <div class="chart-section" id="chartSection">
+        <div class="chart-header">
+            <h2>📊 Canlı Grafik — <span class="chart-ticker-name" id="chartTickerName">Hisse seçin</span></h2>
+            <div class="chart-tabs">
+                <div class="chart-tab active" onclick="changeInterval('1',this)">1dk</div>
+                <div class="chart-tab" onclick="changeInterval('5',this)">5dk</div>
+                <div class="chart-tab" onclick="changeInterval('15',this)">15dk</div>
+                <div class="chart-tab" onclick="changeInterval('60',this)">1sa</div>
+                <div class="chart-tab" onclick="changeInterval('D',this)">Günlük</div>
+                <div class="chart-tab" onclick="changeInterval('W',this)">Haftalık</div>
+            </div>
+        </div>
+        <div class="chart-container" id="chartContainer">
+            <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:14px">
+                👆 Yukarıdan bir hisseye tıklayarak canlı grafiği görüntüleyin
+            </div>
+        </div>
+        <div class="chart-hint">💡 Hisse kartına tıklayarak grafiği değiştirebilirsiniz | TradingView tarafından sağlanmaktadır</div>
     </div>
 
     <!-- ACTIVE SIGNALS -->
@@ -628,12 +665,48 @@ DASHBOARD_HTML = """
     <div class="ft">BIST Sinyal Paneli v4.0 — Otomatik yenileme: 30sn — 🧠 Backtest aktif — ⚠️ Yatırım tavsiyesi değildir</div>
 
     <script>
+    let currentTicker = null;
+    let currentInterval = '1';
+
     function filterTickers(){
         const q=document.getElementById('searchInput').value.toUpperCase();
         document.querySelectorAll('.tk').forEach(el=>{
             el.style.display=el.dataset.ticker.includes(q)?'':'none';
         });
     }
+
+    function loadChart(ticker){
+        currentTicker = ticker;
+        document.getElementById('chartTickerName').textContent = ticker;
+        
+        // Aktif kart vurgulama
+        document.querySelectorAll('.tk').forEach(el=>el.classList.remove('active'));
+        const activeCard = document.querySelector(`.tk[data-ticker="${ticker}"]`);
+        if(activeCard) activeCard.classList.add('active');
+        
+        // TradingView widget URL (Advanced Chart embed)
+        const container = document.getElementById('chartContainer');
+        const symbol = 'BIST:' + ticker;
+        
+        container.innerHTML = `<iframe src="https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]&locale=tr#%7B%22symbol%22%3A%22${symbol}%22%2C%22frameElementId%22%3A%22tradingview_chart%22%2C%22interval%22%3A%22${currentInterval}%22%2C%22hide_side_toolbar%22%3A%220%22%2C%22allow_symbol_change%22%3A%221%22%2C%22save_image%22%3A%220%22%2C%22studies%22%3A%22MACD%40tv-basicstudies%22%2C%22theme%22%3A%22dark%22%2C%22style%22%3A%221%22%2C%22timezone%22%3A%22Europe%2FIstanbul%22%2C%22withdateranges%22%3A%221%22%2C%22studies_overrides%22%3A%22%7B%7D%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A%22100%25%22%2C%22utm_source%22%3A%22bist-panel%22%7D" style="width:100%;height:100%;border:none"></iframe>`;
+        
+        // Grafik bölümüne scroll
+        document.getElementById('chartSection').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+
+    function changeInterval(interval, el){
+        currentInterval = interval;
+        document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
+        el.classList.add('active');
+        if(currentTicker) loadChart(currentTicker);
+    }
+
+    // İlk hissenin grafiğini otomatik yükle
+    {% if prices %}
+    window.addEventListener('DOMContentLoaded', function(){
+        loadChart('{{ prices[0].ticker if prices else "THYAO" }}');
+    });
+    {% endif %}
 
     // Auto refresh prices with AJAX (live)
     {% if bist.open %}
