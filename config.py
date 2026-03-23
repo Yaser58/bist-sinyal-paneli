@@ -9,13 +9,18 @@ import os
 # ─── Veritabanı ───────────────────────────────────────────────
 # Render'da kalıcı disk kullan (deploy'larda veri kaybolmasın)
 _RENDER_DATA_DIR = "/opt/render/project/data"
+DB_PATH = os.path.join(os.path.dirname(__file__), "bist_analiz.db") # Varsayılan
+
 if os.path.exists("/opt/render"):
-    # Render ortamında - kalıcı dizin oluştur
-    os.makedirs(_RENDER_DATA_DIR, exist_ok=True)
-    DB_PATH = os.path.join(_RENDER_DATA_DIR, "bist_analiz.db")
-else:
-    # Yerel geliştirme
-    DB_PATH = os.path.join(os.path.dirname(__file__), "bist_analiz.db")
+    try:
+        # Render ortamında - kalıcı dizin oluşturmayı dene
+        os.makedirs(_RENDER_DATA_DIR, exist_ok=True)
+        DB_PATH = os.path.join(_RENDER_DATA_DIR, "bist_analiz.db")
+    except Exception as e:
+        # Eğer disk henüz oluşturulmamışsa veya yetki yoksa hata verme, normal yola düş
+        print(f"[UYARI] Kalıcı disk bağlanılamadı, geçici alan kullanılıyor: {e}")
+        pass
+
 
 # ─── Haber Kaynakları (RSS) ──────────────────────────────────
 # KAP + genel ekonomi/dünya haberleri
