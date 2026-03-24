@@ -160,6 +160,19 @@ def insert_price_data(ticker, date_str, open_p, high, low, close, volume):
     conn.commit()
     conn.close()
 
+def insert_price_data_bulk(records):
+    """Çoklu fiyat verisini tek seferde veritabanına ekler (Süper Hızlı)."""
+    if not records:
+        return
+    conn = get_connection()
+    conn.executemany(
+        """INSERT OR REPLACE INTO price_data (ticker, date, open, high, low, close, volume)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        records
+    )
+    conn.commit()
+    conn.close()
+
 
 def get_price_on_date(ticker, date_str):
     """Belirli tarihte hisse kapanış fiyatını döndürür."""

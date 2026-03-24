@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from config import BIST_TICKERS, CRYPTO_TICKERS, ALL_TICKERS, HISTORY_DAYS
-from database import insert_price_data, init_db
+from database import insert_price_data, insert_price_data_bulk, init_db
 
 
 def fetch_all_historical_prices():
@@ -58,25 +58,28 @@ def fetch_all_historical_prices():
                     continue
                 
                 ticker_data = ticker_data.dropna(subset=["Close"])
-                count = 0
+                
+                # Bulk list oluştur
+                records = []
                 for date_idx, row in ticker_data.iterrows():
                     date_str = date_idx.strftime("%Y-%m-%d")
-                    insert_price_data(
-                        ticker=ticker,
-                        date_str=date_str,
-                        open_p=round(float(row["Open"]), 4),
-                        high=round(float(row["High"]), 4),
-                        low=round(float(row["Low"]), 4),
-                        close=round(float(row["Close"]), 4),
-                        volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
-                    )
-                    count += 1
-                print(f"  ✅ {ticker}: {count} gün geçmiş veri kaydedildi.")
-                total += count
+                    records.append((
+                        ticker,
+                        date_str,
+                        round(float(row["Open"]), 4),
+                        round(float(row["High"]), 4),
+                        round(float(row["Low"]), 4),
+                        round(float(row["Close"]), 4),
+                        int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+                    ))
+                
+                insert_price_data_bulk(records)
+                print(f"  ✅ {ticker}: {len(records)} gün geçmiş veri kaydedildi.")
+                total += len(records)
             except Exception as e:
                 print(f"  [HATA] {ticker} işlenirken hata: {e}")
                 
-        print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (Süper Hızlı Mod).")
+        print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (Süper Hızlı Bulk Mod).")
         return total
         
     except Exception as e:
