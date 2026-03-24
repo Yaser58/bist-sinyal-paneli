@@ -143,7 +143,8 @@ def fetch_realtime_prices():
         # 2. Kripto Fiyatları (Bybit Futures)
         count_crypto = 0
         import requests
-        today_crypto_str = datetime.now().strftime("%Y-%m-%d")
+        from config import TZ_TURKEY
+        today_crypto_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
         
         try:
             req = requests.get("https://api.bybit.com/v5/market/tickers?category=linear")

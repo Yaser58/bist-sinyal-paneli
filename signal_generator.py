@@ -210,7 +210,8 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     
     # ─── Sinyal Hesaplama ─────────────────────────────────────
     
-    today = datetime.now()
+    from config import TZ_TURKEY
+    today = datetime.now(TZ_TURKEY).replace(tzinfo=None)
     start_date = today.strftime("%d.%m.%Y")
     
     # Fiyat trendi analizi
@@ -505,7 +506,8 @@ def check_signal_results():
         except ValueError:
             continue
         
-        if datetime.now() < end_dt:
+        from config import TZ_TURKEY
+        if datetime.now(TZ_TURKEY).replace(tzinfo=None) < end_dt:
             continue  # Henüz süresi dolmamış
         
         ticker_yf = sig["ticker_yf"]
