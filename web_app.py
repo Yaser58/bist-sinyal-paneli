@@ -200,11 +200,8 @@ def background_worker():
                 worker_status["errors"] = worker_status["errors"][-20:]
             print(f"[WORKER HATA] {e}")
 
-        # BIST açıkken 60 saniye, kapalıyken 5 dakika bekle
-        if bist["open"]:
-            time.sleep(60)     # 1 dakikada bir canlı fiyat
-        else:
-            time.sleep(FETCH_INTERVAL_MINUTES * 60)  # 5 dakikada bir
+        # Kriptolar 7/24 açık olduğu için döngü her zaman 60 saniyede bir çalışsın!
+        time.sleep(60)
 
 
 # ─── HTML Template ────────────────────────────────────────────

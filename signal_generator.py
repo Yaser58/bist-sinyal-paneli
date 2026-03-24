@@ -281,9 +281,18 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
         # Zayıf sinyal, güvenilir değil — üretme
         return None
     
-    # Bitiş tarihi: 5 İŞ GÜNÜ sonra (BIST sadece hafta içi açık)
-    end_date_dt = add_business_days(today, 5)
-    end_date = end_date_dt.strftime("%d.%m.%Y")
+    is_crypto = "-USD" in yf_ticker
+
+    # Tarih formatlama
+    start_date = today.strftime("%d.%m.%Y %H:%M") if is_crypto else today.strftime("%d.%m.%Y")
+    
+    # Bitiş tarihi: Kripto için 3 SAAT, BIST için 5 İŞ GÜNÜ
+    if is_crypto:
+        end_date_dt = today + timedelta(hours=3)
+        end_date = end_date_dt.strftime("%d.%m.%Y %H:%M")
+    else:
+        end_date_dt = add_business_days(today, 5)
+        end_date = end_date_dt.strftime("%d.%m.%Y")
     
     # Güvenilirlik (backtest ile ayarlanmış)
     conf_mult = backtest_adjustments["confidence_multiplier"]
@@ -479,7 +488,10 @@ def check_signal_results():
     for sig in active_signals:
         end_date_str = sig["end_date"]
         try:
-            end_dt = datetime.strptime(end_date_str, "%d.%m.%Y")
+            if " " in end_date_str:
+                end_dt = datetime.strptime(end_date_str, "%d.%m.%Y %H:%M")
+            else:
+                end_dt = datetime.strptime(end_date_str, "%d.%m.%Y")
         except ValueError:
             continue
         
