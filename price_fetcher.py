@@ -9,7 +9,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-from config import BIST_TICKERS, HISTORY_DAYS
+from config import BIST_TICKERS, CRYPTO_TICKERS, ALL_TICKERS, HISTORY_DAYS
 from database import insert_price_data, init_db
 
 
@@ -54,16 +54,16 @@ def fetch_historical_prices(ticker, days=None):
 
 
 def fetch_all_historical_prices():
-    """Tüm BIST hisselerinin geçmiş fiyat verilerini çeker."""
+    """Tüm BIST hisselerinin ve Kripto paraların geçmiş fiyat verilerini çeker."""
     print(f"\n{'='*60}")
     print(f"  📈 FİYAT VERİSİ ÇEKME BAŞLADI - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  📅 Son {HISTORY_DAYS} günlük veri çekilecek.")
-    print(f"  🏦 Toplam {len(BIST_TICKERS)} hisse")
+    print(f"  🏦 Toplam {len(ALL_TICKERS)} Sembol")
     print(f"{'='*60}")
 
     total = 0
-    for i, ticker in enumerate(BIST_TICKERS, 1):
-        print(f"  [{i}/{len(BIST_TICKERS)}] {ticker}...", end=" ")
+    for i, ticker in enumerate(ALL_TICKERS, 1):
+        print(f"  [{i}/{len(ALL_TICKERS)}] {ticker}...", end=" ")
         count = fetch_historical_prices(ticker)
         if count > 0:
             print(f"✅ {count} gün verisi kaydedildi.")
@@ -77,15 +77,15 @@ def fetch_all_historical_prices():
 
 def fetch_realtime_prices():
     """
-    Tüm BIST hisselerinin CANLI fiyatlarını toplu olarak çeker.
+    Tüm BIST hisselerinin ve kriptoların CANLI fiyatlarını toplu olarak çeker.
     yf.download ile tek seferde tüm hisseleri çeker - çok daha hızlı.
     Bugünün tarihiyle kaydeder.
     """
-    print(f"\n  🔴 CANLI fiyatlar çekiliyor ({len(BIST_TICKERS)} hisse)...")
+    print(f"\n  🔴 CANLI fiyatlar çekiliyor ({len(ALL_TICKERS)} sembol)...")
     
     try:
         # Tüm hisseleri tek seferde toplu çek (çok hızlı!)
-        tickers_str = " ".join(BIST_TICKERS)
+        tickers_str = " ".join(ALL_TICKERS)
         df = yf.download(
             tickers_str,
             period="1d",
@@ -102,10 +102,10 @@ def fetch_realtime_prices():
         today_str = datetime.now().strftime("%Y-%m-%d")
         total = 0
         
-        for ticker in BIST_TICKERS:
+        for ticker in ALL_TICKERS:
             try:
                 # Çoklu ticker için kolon yapısı farklı
-                if len(BIST_TICKERS) > 1:
+                if len(ALL_TICKERS) > 1:
                     ticker_clean = ticker.replace(".", "-")  # yfinance bazen . yerine - kullanır
                     
                     # Hem orijinal hem de temizlenmiş isimle dene
@@ -152,7 +152,7 @@ def fetch_realtime_prices():
                 # Sessizce devam et, hata çok fazla log üretmesin
                 pass
         
-        print(f"  ✅ {total}/{len(BIST_TICKERS)} hisse canlı fiyat güncellendi.")
+        print(f"  ✅ {total}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
         return total
         
     except Exception as e:
@@ -166,11 +166,11 @@ def fetch_latest_prices_fast():
     Her hisseyi tek tek ama sadece bugünün verisini çeker.
     fetch_realtime_prices başarısız olursa fallback olarak kullanılır.
     """
-    print(f"\n  🔄 Hızlı fiyat güncelleme ({len(BIST_TICKERS)} hisse)...")
+    print(f"\n  🔄 Hızlı fiyat güncelleme ({len(ALL_TICKERS)} sembol)...")
     total = 0
     today_str = datetime.now().strftime("%Y-%m-%d")
     
-    for ticker in BIST_TICKERS:
+    for ticker in ALL_TICKERS:
         try:
             stock = yf.Ticker(ticker)
             # Sadece bugünün verisi (hızlı)
@@ -195,7 +195,7 @@ def fetch_latest_prices_fast():
         except Exception:
             pass
     
-    print(f"  ✅ {total}/{len(BIST_TICKERS)} hisse güncellendi.")
+    print(f"  ✅ {total}/{len(ALL_TICKERS)} hisse güncellendi.")
     return total
 
 
@@ -216,14 +216,17 @@ def fetch_latest_prices():
     
     is_market_open = (weekday < 5 and bist_open <= current_minutes <= bist_close)
     
+    # Kripto piyasası 7/24 açıktır, BIST kapalı olsa bile API'den çekilir. `yf.download` çok hızlı, bu yüzden tümünü canlı modda çek.
+    # Ancak yine de genel mantığı koruyarak:
     if is_market_open:
-        # Borsa açık - canlı dakikalık veri çek
+        # Borsa açık - tüm canlı dakikalık veri çek
         print(f"  📊 BIST AÇIK - Canlı fiyatlar çekiliyor...")
         return fetch_realtime_prices()
     else:
-        # Borsa kapalı - son kapanış verisi yeterli
-        print(f"  🌙 BIST KAPALI - Son kapanış verileri güncelleniyor...")
-        return fetch_latest_prices_fast()
+        # Borsa kapalı - BIST son kapanış kalır ama Kriptolar için kapanış yoktur. 
+        # En iyisi fetch_realtime_prices'ı her zaman kullanarak canlı kurları yakalamak!
+        print(f"  🌙 BIST KAPALI - Ama Kriptolar için fiyatlar çekiliyor...")
+        return fetch_realtime_prices()
 
 
 def get_ticker_info(ticker):

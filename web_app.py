@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 
-from config import FETCH_INTERVAL_MINUTES, BIST_TICKERS, TICKER_NAMES, COMPANY_NAMES
+from config import FETCH_INTERVAL_MINUTES, BIST_TICKERS, CRYPTO_TICKERS, TICKER_NAMES, COMPANY_NAMES
 from database import init_db, get_connection, get_unprocessed_news, update_news_sentiment
 from news_fetcher import fetch_all_feeds, fetch_kap_notifications
 from price_fetcher import fetch_latest_prices, fetch_all_historical_prices
@@ -81,18 +81,20 @@ def get_bist_status():
         return {"open": False, "status": "KAPALI", "reason": "Seans bitti", "emoji": "🔴"}
 
 
-def get_live_prices(search=None, limit=50):
-    """Veritabanından en güncel hisse fiyatlarını döndürür."""
+def get_live_prices(asset_type="bist", search=None, limit=50):
+    """Veritabanından en güncel hisse/coin fiyatlarını döndürür."""
     conn = get_connection()
 
     prices = []
-    tickers = BIST_TICKERS
+    base_tickers = BIST_TICKERS if asset_type == "bist" else CRYPTO_TICKERS
+    tickers = base_tickers
+    
     if search:
         search_lower = search.lower()
-        tickers = [t for t in BIST_TICKERS
+        tickers = [t for t in base_tickers
                    if search_lower in t.lower()
                    or any(search_lower in name for names in COMPANY_NAMES.values()
-                          for name in names if t.replace(".IS","") in COMPANY_NAMES)]
+                          for name in names if t.replace(".IS","").replace("-USD","") in COMPANY_NAMES)]
 
     for ticker_yf in tickers[:limit]:
         rows = conn.execute(
@@ -108,13 +110,15 @@ def get_live_prices(search=None, limit=50):
         change = current["close"] - prev_close
         change_pct = (change / prev_close * 100) if prev_close else 0
 
-        code = ticker_yf.replace(".IS", "")
+        code = ticker_yf.replace(".IS", "").replace("-USD", "")
         prices.append({
             "ticker": code,
-            "price": round(current["close"], 2),
-            "open": round(current["open"], 2),
-            "high": round(current["high"], 2),
-            "low": round(current["low"], 2),
+            "ticker_tv": ticker_yf.replace(".IS", "").replace("-USD", "USD"), # TradingView for crypto is BTCUSD, bist is THYAO
+            "is_crypto": asset_type == "crypto",
+            "price": round(current["close"], 2 if asset_type == "bist" else 4),
+            "open": round(current["open"], 2 if asset_type == "bist" else 4),
+            "high": round(current["high"], 2 if asset_type == "bist" else 4),
+            "low": round(current["low"], 2 if asset_type == "bist" else 4),
             "volume": current["volume"],
             "change": round(change, 2),
             "change_pct": round(change_pct, 2),
@@ -211,9 +215,8 @@ DASHBOARD_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30">
-    <title>BIST Sinyal Paneli</title>
-    <meta name="description" content="BIST haber analizi ve canlı sinyal üretim sistemi">
+    <title>BIST/Kripto Sinyal Paneli</title>
+    <meta name="description" content="BIST ve Kripto haber analizi, canlı sinyal üretim sistemi">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
@@ -341,6 +344,11 @@ DASHBOARD_HTML = """
         .empty{text-align:center;padding:30px;color:var(--t3);font-size:13px}
         .ft{text-align:center;padding:14px;color:var(--t3);font-size:10px;border-top:1px solid var(--br)}
 
+        /* TV Overlay */
+        #tv-overlay {display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; flex-direction:column}
+        #tv-close {position:absolute; top:20px; right:30px; color:white; font-size:30px; cursor:pointer;}
+        #tv-container {width:90%; height:80%; max-width:1200px; background:#161b22; border-radius:10px; overflow:hidden;}
+        
         @media(max-width:768px){
             .hdr,.stats,.ticker-section,.container,.nav-tabs,.chart-section{padding:10px 14px}
             .sig-grid{grid-template-columns:1fr}
@@ -370,7 +378,8 @@ DASHBOARD_HTML = """
 
     <!-- NAV TABS -->
     <div class="nav-tabs">
-        <a href="/" class="nav-tab {{ 'active' if page == 'main' else '' }}">📊 Ana Panel</a>
+        <a href="/" class="nav-tab {{ 'active' if page == 'main' else '' }}">📊 Ana Panel (BIST)</a>
+        <a href="/crypto" class="nav-tab {{ 'active' if page == 'crypto' else '' }}">🚀 Ana Panel 2 (Kripto)</a>
         <a href="/stopped" class="nav-tab stop-tab {{ 'active' if page == 'stopped' else '' }}">🛑 Stop Olan<span class="count">{{ stopped_count }}</span></a>
         <a href="/won" class="nav-tab won-tab {{ 'active' if page == 'won' else '' }}">✅ Kazanılan<span class="count">{{ won_count }}</span></a>
         <a href="/news" class="nav-tab {{ 'active' if page == 'news' else '' }}">📰 Haberler<span class="count">{{ news_count }}</span></a>
@@ -388,24 +397,24 @@ DASHBOARD_HTML = """
         <div class="st"><div class="lb">Takip Edilen</div><div class="vl b">{{ price_count }} Hisse</div></div>
     </div>
 
-    {% if page == 'main' %}
+    {% if page in ['main', 'crypto'] %}
     <!-- LIVE TICKER BAR -->
     <div class="ticker-section">
         <div class="ticker-header">
-            <h2>📈 VİOP Canlı Fiyatlar {% if bist.open %}(Canlı){% else %}(Son Kapanış){% endif %}</h2>
-            <input type="text" class="search-box" placeholder="🔍 Hisse ara... (THYAO)" id="searchInput" onkeyup="filterTickers()">
+            <h2>📈 {{ 'VİOP' if page == 'main' else 'Kripto Futures' }} Canlı Fiyatlar {% if bist.open or page == 'crypto' %}(Canlı){% else %}(Son Kapanış){% endif %}</h2>
+            <input type="text" class="search-box" placeholder="🔍 Hisse ara... ({{ 'THYAO' if page == 'main' else 'BTC' }})" id="searchInput" onkeyup="filterTickers()">
         </div>
         <div class="ticker-grid" id="tickerGrid">
             {% for p in prices %}
-            <div class="tk" data-ticker="{{ p.ticker }}">
+            <div class="tk" data-ticker="{{ p.ticker }}" onclick="openChart('{{ p.ticker_tv }}', {{ 'true' if p.is_crypto else 'false' }})">
                 <div class="tk-top">
                     <span class="tk-code">{{ p.ticker }}</span>
                     <span class="tk-change {{ 'up' if p.change_pct >= 0 else 'dn' }}">
                         {{ '▲' if p.change_pct >= 0 else '▼' }} %{{ '{:.2f}'.format(p.change_pct|abs) }}
                     </span>
                 </div>
-                <div class="tk-price">{{ '%.2f'|format(p.price) }} ₺</div>
-                <div class="tk-sub">A: {{ '%.2f'|format(p.open) }} | Y: {{ '%.2f'|format(p.high) }} | D: {{ '%.2f'|format(p.low) }}</div>
+                <div class="tk-price">{{ p.price }} {{ 'TL' if page == 'main' else '$' }}</div>
+                <div class="tk-sub">A: {{ p.open }} | Y: {{ p.high }} | D: {{ p.low }}</div>
                 <div class="tk-date">{{ p.date }}</div>
             </div>
             {% endfor %}
@@ -430,9 +439,9 @@ DASHBOARD_HTML = """
                 <div class="sig-rows">
                     <div class="sig-row"><span class="l">📅 Süre</span><span class="v">{{ sig.start_date }} → {{ sig.end_date }}</span></div>
                     {% if sig.price_at_signal %}
-                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ '%.2f'|format(sig.price_at_signal) }} ₺</span></div>
-                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ '%.2f'|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }} ₺</span></div>
-                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ '%.2f'|format(sig.stop_price or 0) }} ₺ (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
+                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ sig.price_at_signal }}</span></div>
+                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ '%.4f'|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }}</span></div>
+                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ sig.stop_price or 0 }} (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
                     {% endif %}
                     <div class="sig-row"><span class="l">🛡 Güven</span><span class="v">{{ sig.confidence or '?' }}</span></div>
                 </div>
@@ -701,7 +710,38 @@ DASHBOARD_HTML = """
     </div>
     {% endif %}
 
+    <!-- TradingView Overlay -->
+    <div id="tv-overlay">
+        <div id="tv-close" onclick="closeChart()">&times;</div>
+        <div id="tv-container"></div>
+    </div>
+
     <script>
+    function openChart(ticker, isCrypto) {
+        document.getElementById('tv-overlay').style.display = 'flex';
+        let prefix = isCrypto ? "BINANCE:" : "BIST:";
+        if (isCrypto && ['XRPUSD','SOLUSD','ADAUSD','TRUMPUSD'].includes(ticker)) prefix = "BINANCE:"; // Crypto borsası ayarlama
+        if (isCrypto) ticker = ticker + "T"; // USDT formatına çevir Binance için, örneğin BTCUSDT
+        // TRUMP için gateio, mexc vb seçilebilir, örneğin TRUMPUSDT genelde mexc vb'de bulunur.
+
+        new TradingView.widget({
+            "autosize": true,
+            "symbol": prefix + ticker,
+            "interval": "15",
+            "timezone": "Europe/Istanbul",
+            "theme": "dark",
+            "style": "1",
+            "locale": "tr",
+            "enable_publishing": false,
+            "container_id": "tv-container"
+        });
+    }
+
+    function closeChart() {
+        document.getElementById('tv-overlay').style.display = 'none';
+        document.getElementById('tv-container').innerHTML = '';
+    }
+
     function filterTickers(){
         const q=document.getElementById('searchInput').value.toUpperCase();
         document.querySelectorAll('.tk').forEach(el=>{
@@ -709,18 +749,29 @@ DASHBOARD_HTML = """
         });
     }
 
-    // İlk hissenin grafiğini otomatik yükle (kaldırıldı)
+    // Refresh sayfası async olarak white ekran sorununu çözer
+    setInterval(function(){
+        fetch(window.location.href)
+        .then(res => res.text())
+        .then(html => {
+            let doc = new DOMParser().parseFromString(html, 'text/html');
+            // Sadece değişken içeriği yenile
+            let newContainer = doc.querySelector('.container') || doc.body;
+            if(document.querySelector('.container')) {
+                document.querySelector('.container').innerHTML = doc.querySelector('.container').innerHTML;
+            }
+        }).catch(err => console.log(err));
+    }, 45000);
 
     // Auto refresh prices with AJAX (live)
-    {% if bist.open %}
     setInterval(function(){
-        fetch('/api/prices')
+        fetch('/api/prices?q=' + (window.location.pathname === '/crypto' ? 'crypto' : 'bist'))
             .then(r=>r.json())
             .then(data=>{
                 data.forEach(p=>{
                     const el=document.querySelector(`.tk[data-ticker="${p.ticker}"]`);
                     if(el){
-                        el.querySelector('.tk-price').textContent=p.price.toFixed(2)+' ₺';
+                        el.querySelector('.tk-price').textContent=p.price.toFixed(2) + (p.is_crypto ? ' $' : ' ₺');
                         const ch=el.querySelector('.tk-change');
                         ch.textContent=(p.change_pct>=0?'▲':'▼')+' %'+Math.abs(p.change_pct).toFixed(2);
                         ch.className='tk-change '+(p.change_pct>=0?'up':'dn');
@@ -728,8 +779,8 @@ DASHBOARD_HTML = """
                 });
             }).catch(()=>{});
     }, 15000);
-    {% endif %}
     </script>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </body>
 </html>
 """
@@ -779,12 +830,26 @@ def _get_common_context():
 @app.route("/")
 def dashboard():
     ctx = _get_common_context()
-    active = get_active_signals()
-    prices = get_live_prices(limit=50)
+    active = [s for s in get_active_signals() if not s["ticker_yf"].endswith("-USD")]
+    prices = get_live_prices(asset_type="bist", limit=50)
 
     return render_template_string(
         DASHBOARD_HTML,
         page="main",
+        active_signals=active,
+        prices=prices,
+        **ctx,
+    )
+
+@app.route("/crypto")
+def crypto_dashboard():
+    ctx = _get_common_context()
+    active = [s for s in get_active_signals() if s["ticker_yf"].endswith("-USD")]
+    prices = get_live_prices(asset_type="crypto", limit=50)
+
+    return render_template_string(
+        DASHBOARD_HTML,
+        page="crypto",
         active_signals=active,
         prices=prices,
         **ctx,
@@ -894,7 +959,11 @@ def api_signals():
 @app.route("/api/prices")
 def api_prices():
     search = request.args.get("q", None)
-    return jsonify(get_live_prices(search=search, limit=50))
+    asset_type = request.args.get("type", "bist")
+    if search == "crypto" or search == "bist":
+        asset_type = search
+        search = None
+    return jsonify(get_live_prices(asset_type=asset_type, search=search, limit=50))
 
 @app.route("/api/history")
 def api_history():
@@ -969,13 +1038,6 @@ def _heavy_init():
 print("  ⚙️  Veritabanı hazırlanıyor...")
 init_db()
 init_signals_table()
-
-# Eski sinyalleri temizle
-conn = get_connection()
-conn.execute("DELETE FROM signals")
-conn.commit()
-conn.close()
-print("  🧹 Sinyaller temizlendi.")
 
 # Ağır işleri arka plan thread'de başlat (gunicorn'u BLOKE ETMEZ)
 init_thread = threading.Thread(target=_heavy_init, daemon=True)

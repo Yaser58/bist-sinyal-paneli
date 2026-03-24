@@ -48,8 +48,17 @@ BIST_TICKERS = [
     "ENKAI.IS", "EKGYO.IS", "DOHOL.IS", "MGROS.IS", "KRDMD.IS",
 ]
 
+# ─── Kripto Paralar ────────────────────────────────────────────
+# Sadece kullanıcının belirttiği coinler
+CRYPTO_TICKERS = [
+    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "TRUMP-USD", "ADA-USD"
+]
+
+ALL_TICKERS = BIST_TICKERS + CRYPTO_TICKERS
+
 # Ticker isimleri (THYAO.IS -> THYAO) - haber eşleştirme için
 TICKER_NAMES = {t.replace(".IS", ""): t for t in BIST_TICKERS}
+TICKER_NAMES.update({t.replace("-USD", ""): t for t in CRYPTO_TICKERS})
 
 # Şirket tam adları - haberlerde isim geçtiğinde eşleştirebilmek için
 COMPANY_NAMES = {
@@ -84,6 +93,12 @@ COMPANY_NAMES = {
     "SOKM": ["şok market", "şok"],
     "ULKER": ["ülker"],
     "OTKAR": ["otokar"],
+    "BTC": ["bitcoin", "btc"],
+    "ETH": ["ethereum", "eth"],
+    "XRP": ["ripple", "xrp"],
+    "SOL": ["solana", "sol", "solano"],
+    "TRUMP": ["trump", "maga"],
+    "ADA": ["cardano", "ada"],
 }
 
 # ─── NLP Modeli ───────────────────────────────────────────────
@@ -93,8 +108,8 @@ SENTIMENT_MODEL = "savasy/bert-base-turkish-sentiment-cased"
 # Haber sonrası takip edilecek gün sayıları
 ANALYSIS_PERIODS = [1, 3, 5]
 
-# Geçmiş veri çekme süresi (gün)
-HISTORY_DAYS = 365
+# Analiz için fiyat geçmişi (50 yıla çıkarıldı - veritabanı yfinance'ın verdiği max veriyi alacak)
+HISTORY_DAYS = 18250
 
 # Haber çekme sıklığı (dakika)
 FETCH_INTERVAL_MINUTES = 5
