@@ -991,6 +991,9 @@ def _heavy_init():
     try:
         print("  [1/3] Fiyat verileri çekiliyor...")
         fetch_all_historical_prices()
+        # Tarih ve saat karmaşasını engellemek için anında Bybit futures canlı verilerini de çek
+        fetch_latest_prices()
+        
         print("  [2/3] Haberler toplanıyor...")
         fetch_kap_notifications()
         fetch_all_feeds()
