@@ -13,48 +13,8 @@ from config import BIST_TICKERS, CRYPTO_TICKERS, ALL_TICKERS, HISTORY_DAYS
 from database import insert_price_data, init_db
 
 
-def fetch_historical_prices(ticker, days=None):
-    """
-    Belirli bir hisse için geçmiş fiyat verilerini çeker ve veritabanına kaydeder.
-    """
-    if days is None:
-        days = HISTORY_DAYS
-
-    try:
-        stock = yf.Ticker(ticker)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-
-        df = stock.history(start=start_date.strftime("%Y-%m-%d"),
-                          end=end_date.strftime("%Y-%m-%d"))
-
-        if df.empty:
-            print(f"  ⚠️  {ticker}: Veri bulunamadı.")
-            return 0
-
-        count = 0
-        for date_idx, row in df.iterrows():
-            date_str = date_idx.strftime("%Y-%m-%d")
-            insert_price_data(
-                ticker=ticker,
-                date_str=date_str,
-                open_p=round(row["Open"], 4),
-                high=round(row["High"], 4),
-                low=round(row["Low"], 4),
-                close=round(row["Close"], 4),
-                volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
-            )
-            count += 1
-
-        return count
-
-    except Exception as e:
-        print(f"  [HATA] {ticker} fiyat çekme hatası: {e}")
-        return 0
-
-
 def fetch_all_historical_prices():
-    """Tüm BIST hisselerinin ve Kripto paraların geçmiş fiyat verilerini çeker."""
+    """Tüm BIST hisselerinin ve Kripto paraların geçmiş fiyat verilerini toplu ve hızlıca çeker."""
     print(f"\n{'='*60}")
     print(f"  📈 FİYAT VERİSİ ÇEKME BAŞLADI - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  📅 Son {HISTORY_DAYS} günlük veri çekilecek.")
@@ -62,17 +22,66 @@ def fetch_all_historical_prices():
     print(f"{'='*60}")
 
     total = 0
-    for i, ticker in enumerate(ALL_TICKERS, 1):
-        print(f"  [{i}/{len(ALL_TICKERS)}] {ticker}...", end=" ")
-        count = fetch_historical_prices(ticker)
-        if count > 0:
-            print(f"✅ {count} gün verisi kaydedildi.")
-        else:
-            print(f"⚠️  Veri yok.")
-        total += count
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=HISTORY_DAYS)
 
-    print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu.")
-    return total
+    try:
+        tickers_str = " ".join(ALL_TICKERS)
+        df = yf.download(
+            tickers_str,
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+            progress=False,
+            threads=True,
+            group_by="ticker"
+        )
+
+        if df.empty:
+            print("  ⚠️  Toplu geçmiş veri boş geldi.")
+            return 0
+        
+        for ticker in ALL_TICKERS:
+            try:
+                # Çoklu ticker için seviye/kolon yapısı kontrolü
+                ticker_clean = ticker.replace(".", "-")
+                ticker_data = None
+                for t_name in [ticker, ticker_clean]:
+                    try:
+                        if t_name in df.columns.get_level_values(0):
+                            ticker_data = df[t_name]
+                            break
+                    except Exception:
+                        pass
+                
+                if ticker_data is None or ticker_data.empty:
+                    print(f"  ⚠️  {ticker}: Geçmiş veri bulunamadı.")
+                    continue
+                
+                ticker_data = ticker_data.dropna(subset=["Close"])
+                count = 0
+                for date_idx, row in ticker_data.iterrows():
+                    date_str = date_idx.strftime("%Y-%m-%d")
+                    insert_price_data(
+                        ticker=ticker,
+                        date_str=date_str,
+                        open_p=round(float(row["Open"]), 4),
+                        high=round(float(row["High"]), 4),
+                        low=round(float(row["Low"]), 4),
+                        close=round(float(row["Close"]), 4),
+                        volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+                    )
+                    count += 1
+                print(f"  ✅ {ticker}: {count} gün geçmiş veri kaydedildi.")
+                total += count
+            except Exception as e:
+                print(f"  [HATA] {ticker} işlenirken hata: {e}")
+                
+        print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (Süper Hızlı Mod).")
+        return total
+        
+    except Exception as e:
+        print(f"  [HATA] Toplu geçmiş fiyat çekme hatası: {e}")
+        return 0
 
 
 def fetch_realtime_prices():
