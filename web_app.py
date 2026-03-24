@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 
-from config import FETCH_INTERVAL_MINUTES, BIST_TICKERS, CRYPTO_TICKERS, TICKER_NAMES, COMPANY_NAMES
+from config import FETCH_INTERVAL_MINUTES, BIST_TICKERS, CRYPTO_TICKERS, TICKER_NAMES, COMPANY_NAMES, TZ_TURKEY
 from database import init_db, get_connection, get_unprocessed_news, update_news_sentiment
 from news_fetcher import fetch_all_feeds, fetch_kap_notifications
 from price_fetcher import fetch_latest_prices, fetch_all_historical_prices
@@ -36,9 +36,6 @@ worker_status = {
     "total_signals": 0,
     "errors": [],
 }
-
-# Türkiye saat dilimi (UTC+3)
-TZ_TURKEY = timezone(timedelta(hours=3))
 
 # ─── BIST Piyasa Durumu ──────────────────────────────────────
 

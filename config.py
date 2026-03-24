@@ -5,6 +5,10 @@ Tüm ayarlar burada merkezi olarak yönetilir.
 """
 
 import os
+from datetime import timezone, timedelta
+
+# Türkiye saat dilimi (UTC+3)
+TZ_TURKEY = timezone(timedelta(hours=3))
 
 # ─── Veritabanı ───────────────────────────────────────────────
 # Render'da kalıcı disk kullan (deploy'larda veri kaybolmasın)
