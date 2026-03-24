@@ -147,7 +147,8 @@ def fetch_realtime_prices():
         today_crypto_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
         
         try:
-            req = requests.get("https://api.bybit.com/v5/market/tickers?category=linear")
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            req = requests.get("https://api.bybit.com/v5/market/tickers?category=linear", headers=headers, timeout=10)
             if req.status_code == 200:
                 data = req.json().get("result", {}).get("list", [])
                 bybit_map = {item["symbol"]: item for item in data}
