@@ -14,77 +14,93 @@ from database import insert_price_data, insert_price_data_bulk, init_db
 
 
 def fetch_all_historical_prices():
-    """Tüm BIST hisselerinin ve Kripto paraların geçmiş fiyat verilerini toplu ve hızlıca çeker."""
+    """Tüm BIST hisselerinin geçmişini YF'dan, Kripto paralarınkini Bybit'ten toplu çeker."""
     print(f"\n{'='*60}")
-    print(f"  📈 FİYAT VERİSİ ÇEKME BAŞLADI - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  📅 Son {HISTORY_DAYS} günlük veri çekilecek.")
-    print(f"  🏦 Toplam {len(ALL_TICKERS)} Sembol")
+    print(f"  📈 FİYAT GEÇMİŞİ ÇEKME BAŞLADI - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
 
     total = 0
     end_date = datetime.now()
     start_date = end_date - timedelta(days=HISTORY_DAYS)
 
+    # 1. BIST YF Çeki
     try:
-        tickers_str = " ".join(ALL_TICKERS)
-        df = yf.download(
-            tickers_str,
-            start=start_date.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d"),
-            progress=False,
-            threads=True,
-            group_by="ticker"
-        )
+        if len(BIST_TICKERS) > 0:
+            bist_str = " ".join(BIST_TICKERS)
+            df = yf.download(
+                bist_str,
+                start=start_date.strftime("%Y-%m-%d"),
+                end=end_date.strftime("%Y-%m-%d"),
+                progress=False,
+                threads=True,
+                group_by="ticker"
+            )
 
-        if df.empty:
-            print("  ⚠️  Toplu geçmiş veri boş geldi.")
-            return 0
-        
-        for ticker in ALL_TICKERS:
-            try:
-                # Çoklu ticker için seviye/kolon yapısı kontrolü
-                ticker_clean = ticker.replace(".", "-")
-                ticker_data = None
-                for t_name in [ticker, ticker_clean]:
+            if not df.empty:
+                for ticker in BIST_TICKERS:
                     try:
-                        if t_name in df.columns.get_level_values(0):
-                            ticker_data = df[t_name]
-                            break
-                    except Exception:
+                        ticker_clean = ticker.replace(".", "-")
+                        ticker_data = None
+                        if len(BIST_TICKERS) > 1:
+                            for t_name in [ticker, ticker_clean]:
+                                try:
+                                    if t_name in df.columns.get_level_values(0):
+                                        ticker_data = df[t_name]
+                                        break
+                                except Exception: pass
+                        else:
+                            ticker_data = df
+                        
+                        if ticker_data is None or ticker_data.empty: continue
+                        ticker_data = ticker_data.dropna(subset=["Close"])
+                        
+                        records = []
+                        for date_idx, row in ticker_data.iterrows():
+                            records.append((
+                                ticker, date_idx.strftime("%Y-%m-%d"),
+                                round(float(row["Open"]), 4), round(float(row["High"]), 4),
+                                round(float(row["Low"]), 4), round(float(row["Close"]), 4),
+                                int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+                            ))
+                        insert_price_data_bulk(records)
+                        total += len(records)
+                        print(f"  ✅ {ticker}: {len(records)} gün geçmiş YF verisi kaydedildi.")
+                    except Exception as e:
                         pass
+    except Exception as e:
+        print(f"  [HATA] BIST geçmiş fiyat çekme hatası: {e}")
+
+    # 2. BYBIT Kripto Klasik Kline (Geçmiş) API
+    try:
+        import requests
+        for ticker in CRYPTO_TICKERS:
+            bybit_symbol = ticker.split("-")[0] + "USDT"
+            req = requests.get(f"https://api.bybit.com/v5/market/kline?category=linear&symbol={bybit_symbol}&interval=D&limit=500")
+            if req.status_code == 200:
+                kline_list = req.json().get("result", {}).get("list", [])
                 
-                if ticker_data is None or ticker_data.empty:
-                    print(f"  ⚠️  {ticker}: Geçmiş veri bulunamadı.")
-                    continue
-                
-                ticker_data = ticker_data.dropna(subset=["Close"])
-                
-                # Bulk list oluştur
                 records = []
-                for date_idx, row in ticker_data.iterrows():
-                    date_str = date_idx.strftime("%Y-%m-%d")
+                # Bybit listesi en yeniden eskiye geliyor, iterasyon yapalım.
+                for item in kline_list:
+                    # item format: [startTime, open, high, low, close, volume, turnover]
+                    ts = int(item[0]) / 1000.0
+                    date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
                     records.append((
-                        ticker,
-                        date_str,
-                        round(float(row["Open"]), 4),
-                        round(float(row["High"]), 4),
-                        round(float(row["Low"]), 4),
-                        round(float(row["Close"]), 4),
-                        int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+                        ticker, date_str,
+                        round(float(item[1]), 6), round(float(item[2]), 6),
+                        round(float(item[3]), 6), round(float(item[4]), 6),
+                        int(float(item[5]))
                     ))
                 
-                insert_price_data_bulk(records)
-                print(f"  ✅ {ticker}: {len(records)} gün geçmiş veri kaydedildi.")
-                total += len(records)
-            except Exception as e:
-                print(f"  [HATA] {ticker} işlenirken hata: {e}")
-                
-        print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (Süper Hızlı Bulk Mod).")
-        return total
-        
+                if records:
+                    insert_price_data_bulk(records)
+                    print(f"  ✅ {ticker}: {len(records)} gün geçmiş Bybit verisi kaydedildi.")
+                    total += len(records)
     except Exception as e:
-        print(f"  [HATA] Toplu geçmiş fiyat çekme hatası: {e}")
-        return 0
+        print(f"  [HATA] Bybit geçmiş fiyat çekme hatası: {e}")
+
+    print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (BIST & BYBIT).")
+    return total
 
 
 def fetch_realtime_prices():
@@ -182,13 +198,14 @@ def fetch_realtime_prices():
 def fetch_latest_prices_fast():
     """
     Her hisseyi tek tek ama sadece bugünün verisini çeker.
-    fetch_realtime_prices başarısız olursa fallback olarak kullanılır.
+    fetch_realtime_prices başarısız olursa fallback olarak kullanılır (SADECE BIST).
     """
-    print(f"\n  🔄 Hızlı fiyat güncelleme ({len(ALL_TICKERS)} sembol)...")
+    print(f"\n  🔄 Hızlı fiyat güncelleme ({len(BIST_TICKERS)} sembol)...")
     total = 0
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    from config import TZ_TURKEY
+    today_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
     
-    for ticker in ALL_TICKERS:
+    for ticker in BIST_TICKERS:
         try:
             stock = yf.Ticker(ticker)
             # Sadece bugünün verisi (hızlı)
