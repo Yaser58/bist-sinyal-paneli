@@ -108,8 +108,8 @@ SENTIMENT_MODEL = "savasy/bert-base-turkish-sentiment-cased"
 # Haber sonrası takip edilecek gün sayıları
 ANALYSIS_PERIODS = [1, 3, 5]
 
-# Analiz için fiyat geçmişi (50 yıla çıkarıldı - veritabanı yfinance'ın verdiği max veriyi alacak)
-HISTORY_DAYS = 18250
+# Analiz için fiyat geçmişi (Free Server RAM limitinden dolayı max 3-5 yıl arası çekilebilir - 1095 gün)
+HISTORY_DAYS = 1095
 
 # Haber çekme sıklığı (dakika)
 FETCH_INTERVAL_MINUTES = 5
