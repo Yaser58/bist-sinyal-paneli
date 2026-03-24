@@ -751,8 +751,11 @@ DASHBOARD_HTML = """
             let doc = new DOMParser().parseFromString(html, 'text/html');
             // Sadece değişken içeriği yenile
             let newContainer = doc.querySelector('.container') || doc.body;
-            if(document.querySelector('.container')) {
+            if(document.querySelector('.container') && doc.querySelector('.container')) {
                 document.querySelector('.container').innerHTML = doc.querySelector('.container').innerHTML;
+            }
+            if(document.querySelector('.ticker-bar') && doc.querySelector('.ticker-bar')) {
+                document.querySelector('.ticker-bar').innerHTML = doc.querySelector('.ticker-bar').innerHTML;
             }
         }).catch(err => console.log(err));
     }, 45000);

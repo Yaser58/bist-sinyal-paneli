@@ -73,9 +73,10 @@ def fetch_all_historical_prices():
     # 2. BYBIT Kripto Klasik Kline (Geçmiş) API
     try:
         import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         for ticker in CRYPTO_TICKERS:
             bybit_symbol = ticker.split("-")[0] + "USDT"
-            req = requests.get(f"https://api.bybit.com/v5/market/kline?category=linear&symbol={bybit_symbol}&interval=D&limit=500")
+            req = requests.get(f"https://api.bybit.com/v5/market/kline?category=linear&symbol={bybit_symbol}&interval=D&limit=500", headers=headers, timeout=10)
             if req.status_code == 200:
                 kline_list = req.json().get("result", {}).get("list", [])
                 
