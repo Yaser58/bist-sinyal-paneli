@@ -57,7 +57,8 @@ def extract_tickers(text):
     # 2. Şirket adı ile arama
     for ticker_code, names in COMPANY_NAMES.items():
         for name in names:
-            if name.lower() in text_lower:
+            pattern = r'\b' + re.escape(name) + r'\b'
+            if re.search(pattern, text, re.IGNORECASE):
                 found_tickers.add(ticker_code)
                 break
 

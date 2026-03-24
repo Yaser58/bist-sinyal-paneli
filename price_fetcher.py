@@ -88,88 +88,92 @@ def fetch_all_historical_prices():
 
 
 def fetch_realtime_prices():
-    """
-    Tüm BIST hisselerinin ve kriptoların CANLI fiyatlarını toplu olarak çeker.
-    yf.download ile tek seferde tüm hisseleri çeker - çok daha hızlı.
-    Bugünün tarihiyle kaydeder.
-    """
+    """Canlı BIST fiyatlarını YFinance'den, Kripto (Futures) fiyatlarını Bybit'ten çeker."""
     print(f"\n  🔴 CANLI fiyatlar çekiliyor ({len(ALL_TICKERS)} sembol)...")
-    
     try:
-        # Tüm hisseleri tek seferde toplu çek (çok hızlı!)
-        tickers_str = " ".join(ALL_TICKERS)
-        df = yf.download(
-            tickers_str,
-            period="1d",
-            interval="1m",
-            progress=False,
-            threads=True,
-            group_by="ticker"
-        )
-        
-        if df.empty:
-            print("  ⚠️  Toplu veri boş, tek tek çekiliyor...")
-            return fetch_latest_prices()
-        
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        total = 0
-        
-        for ticker in ALL_TICKERS:
-            try:
-                # Çoklu ticker için kolon yapısı farklı
-                if len(ALL_TICKERS) > 1:
-                    ticker_clean = ticker.replace(".", "-")  # yfinance bazen . yerine - kullanır
-                    
-                    # Hem orijinal hem de temizlenmiş isimle dene
+        count_bist = 0
+        if len(BIST_TICKERS) > 0:
+            bist_str = " ".join(BIST_TICKERS)
+            df_bist = yf.download(bist_str, period="1d", interval="1m", progress=False, group_by="ticker")
+            
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            for ticker in BIST_TICKERS:
+                try:
+                    ticker_clean = ticker.replace(".", "-")
                     ticker_data = None
-                    for t_name in [ticker, ticker_clean]:
-                        try:
-                            if t_name in df.columns.get_level_values(0):
-                                ticker_data = df[t_name]
-                                break
-                        except Exception:
-                            pass
+                    if len(BIST_TICKERS) > 1:
+                        for t_name in [ticker, ticker_clean]:
+                            try:
+                                if t_name in df_bist.columns.get_level_values(0):
+                                    ticker_data = df_bist[t_name]
+                                    break
+                            except Exception:
+                                pass
+                    else:
+                        ticker_data = df_bist
                     
                     if ticker_data is None or ticker_data.empty:
                         continue
-                else:
-                    ticker_data = df
-                
-                # NaN olmayan son satırı al (en güncel fiyat)
-                ticker_data = ticker_data.dropna(subset=["Close"])
-                if ticker_data.empty:
-                    continue
-                
-                last_row = ticker_data.iloc[-1]
-                
-                # Bugünün tüm verilerinden high/low hesapla
-                day_high = ticker_data["High"].max()
-                day_low = ticker_data["Low"].min()
-                day_open = ticker_data.iloc[0]["Open"]
-                last_close = last_row["Close"]
-                last_volume = int(ticker_data["Volume"].sum()) if "Volume" in ticker_data.columns else 0
-                
-                insert_price_data(
-                    ticker=ticker,
-                    date_str=today_str,
-                    open_p=round(float(day_open), 4),
-                    high=round(float(day_high), 4),
-                    low=round(float(day_low), 4),
-                    close=round(float(last_close), 4),
-                    volume=last_volume
-                )
-                total += 1
-                
-            except Exception as e:
-                # Sessizce devam et, hata çok fazla log üretmesin
-                pass
+                    
+                    ticker_data = ticker_data.dropna(subset=["Close"])
+                    if ticker_data.empty:
+                        continue
+                    
+                    last_row = ticker_data.iloc[-1]
+                    day_open = ticker_data["Open"].iloc[0]
+                    day_high = ticker_data["High"].max()
+                    day_low = ticker_data["Low"].min()
+                    last_close = last_row["Close"]
+                    last_volume = int(ticker_data["Volume"].sum()) if pd.notna(ticker_data["Volume"].sum()) else 0
+                    
+                    insert_price_data(
+                        ticker=ticker,
+                        date_str=today_str,
+                        open_p=round(float(day_open), 4),
+                        high=round(float(day_high), 4),
+                        low=round(float(day_low), 4),
+                        close=round(float(last_close), 4),
+                        volume=last_volume
+                    )
+                    count_bist += 1
+                except Exception:
+                    pass
         
-        print(f"  ✅ {total}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
-        return total
+        # 2. Kripto Fiyatları (Bybit Futures)
+        count_crypto = 0
+        import requests
+        today_crypto_str = datetime.now().strftime("%Y-%m-%d")
         
+        try:
+            req = requests.get("https://api.bybit.com/v5/market/tickers?category=linear")
+            if req.status_code == 200:
+                data = req.json().get("result", {}).get("list", [])
+                bybit_map = {item["symbol"]: item for item in data}
+                
+                for ticker in CRYPTO_TICKERS:
+                    bybit_symbol = ticker.split("-")[0] + "USDT"
+                    
+                    if bybit_symbol in bybit_map:
+                        b_data = bybit_map[bybit_symbol]
+                        insert_price_data(
+                            ticker=ticker,
+                            date_str=today_crypto_str,
+                            open_p=round(float(b_data.get("prevPrice24h", 0)), 6),
+                            high=round(float(b_data.get("highPrice24h", 0)), 6),
+                            low=round(float(b_data.get("lowPrice24h", 0)), 6),
+                            close=round(float(b_data.get("lastPrice", 0)), 6),
+                            volume=int(float(b_data.get("volume24h", 0)))
+                        )
+                        count_crypto += 1
+        except Exception as e:
+            print(f"  [HATA] Bybit Kripto fiyat çekme hatası: {e}")
+
+        print(f"  ✅ {count_bist + count_crypto}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
+        return count_bist + count_crypto
+
     except Exception as e:
-        print(f"  [HATA] Toplu canlı fiyat hatası: {e}")
-        print(f"  🔄 Alternatif yöntem deneniyor...")
+        print(f"  [HATA] Canlı fiyat çekme hatası: {e}")
         return fetch_latest_prices_fast()
 
 

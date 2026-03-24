@@ -436,9 +436,9 @@ DASHBOARD_HTML = """
                 <div class="sig-rows">
                     <div class="sig-row"><span class="l">📅 Süre</span><span class="v">{{ sig.start_date }} → {{ sig.end_date }}</span></div>
                     {% if sig.price_at_signal %}
-                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ sig.price_at_signal }}</span></div>
-                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ '%.4f'|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }}</span></div>
-                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ sig.stop_price or 0 }} (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
+                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ '%.6f'|format(sig.price_at_signal) }}</span></div>
+                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ '%.6f'|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }}</span></div>
+                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ '%.6f'|format(sig.stop_price or 0) }} (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
                     {% endif %}
                     <div class="sig-row"><span class="l">🛡 Güven</span><span class="v">{{ sig.confidence or '?' }}</span></div>
                 </div>
@@ -687,7 +687,7 @@ DASHBOARD_HTML = """
                 <td style="color:{{ 'var(--g)' if (sig.expected_change_pct or 0) > 0 else 'var(--r)' }};font-weight:600">%{{ '{:+.2f}'.format(sig.expected_change_pct or 0) }}</td>
                 <td style="color:{{ 'var(--g)' if (sig.actual_change_pct or 0) > 0 else 'var(--r)' }};font-weight:600">%{{ '{:+.2f}'.format(sig.actual_change_pct or 0) }}</td>
                 <td style="color:var(--t3)">{{ sig.start_date }} → {{ sig.end_date }}</td>
-                <td style="color:var(--o)">%{{ '%.1f'|format(sig.stop_loss_pct or 0) }}</td>
+                <td style="color:var(--o)">%{{ '%.1f'|format(sig.stop_loss_pct or 0) }} ({{ '%.6f'|format(sig.stop_price or 0) }})</td>
                 <td>
                     {% if sig.status == 'KAZANDI' %}
                     <span class="badge ok">✅ Kazandı</span>
@@ -856,7 +856,7 @@ def crypto_dashboard():
 @app.route("/stopped")
 def stopped_page():
     ctx = _get_common_context()
-    stopped = get_stopped_signals(limit=50)
+    stopped = get_stopped_signals(limit=200)
 
     return render_template_string(
         DASHBOARD_HTML,
@@ -905,7 +905,7 @@ def history_page():
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM signals WHERE status IN ('TAMAMLANDI', 'KAZANDI', 'STOP')
-        ORDER BY created_at DESC LIMIT 100
+        ORDER BY created_at DESC LIMIT 500
     """).fetchall()
     conn.close()
     all_history = [dict(r) for r in rows]

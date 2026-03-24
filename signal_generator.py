@@ -270,6 +270,16 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     # Backtestten öğrenilen kaçınılacak hisseler
     if ticker_code in backtest_adjustments["avoid_tickers"]:
         return None  # Bu hisse sürekli kaybettiriyor, sinyal üretme
+        
+    is_crypto = "-USD" in yf_ticker
+    
+    # Kripto Karlılık Filtresi (Trende karşı açılan işlemleri reddet)
+    if is_crypto:
+        expected_change *= 2.0  # Kriptoda kar marjı genişletilmeli
+        if sentiment_label == 'positive' and trend_factor < -1.5:
+            return None # Kripto sert düşüşteyken iyi haber gelirse Long açma (Piyasa affetmez)
+        if sentiment_label == 'negative' and trend_factor > 1.5:
+            return None # Kripto boğadayken küçük kötü haberle Short açma
     
     # Yön belirleme — eşik backtest ile ayarlanır
     threshold = backtest_adjustments["min_score_threshold"]
