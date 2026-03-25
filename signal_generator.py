@@ -413,17 +413,18 @@ def save_signal(signal):
 
 # ─── Sinyal Takip (Sonuç Kontrolü) ──────────────────────────
 
-def check_stop_loss():
+def check_signal_results():
     """
-    Aktif sinyallerin stop-loss seviyelerini kontrol eder.
-    Fiyat stop seviyesine ulaştıysa sinyali 'STOP' olarak işaretler.
+    Aktif sinyallerin Hedef (Take Profit) ve Stop-Loss seviyelerini kontrol eder.
+    Zaman aşımına uğrama ve silinme durumu KULLANICI İSTEĞİ ÜZERİNE KALDIRILMIŞTIR.
+    Sinyaller hedefe veya stop noktasına ulaşana kadar Aktif kalırlar ve asla kaybolmazlar.
     """
     conn = get_connection()
     active_signals = conn.execute("""
         SELECT * FROM signals WHERE status = 'AKTIF'
     """).fetchall()
     
-    stopped = []
+    results = []
     for sig in active_signals:
         ticker_yf = sig["ticker_yf"]
         if not ticker_yf or not sig["price_at_signal"]:
@@ -444,15 +445,35 @@ def check_stop_loss():
         
         is_up = "YÜKSELİŞ" in (sig["direction"] or "")
         stop_loss_pct = sig["stop_loss_pct"] or (abs(sig["expected_change_pct"] or 3) * 0.5)
+        expected_pct = abs(sig["expected_change_pct"] or 3.0)
         
-        # Stop-loss kontrolü
+        hit_target = False
         hit_stop = False
-        if is_up and actual_change < -stop_loss_pct:
-            hit_stop = True
-        elif not is_up and actual_change > stop_loss_pct:
-            hit_stop = True
         
-        if hit_stop:
+        # Hedef kontrolü
+        if is_up and actual_change >= expected_pct:
+            hit_target = True
+        elif not is_up and actual_change <= -expected_pct:
+            hit_target = True
+            
+        # Stop kontrolü
+        if is_up and actual_change <= -stop_loss_pct:
+            hit_stop = True
+        elif not is_up and actual_change >= stop_loss_pct:
+            hit_stop = True
+            
+        if hit_target:
+            conn.execute("""
+                UPDATE signals SET 
+                    status='KAZANDI', 
+                    actual_change_pct=?,
+                    price_at_end=?,
+                    result='✅ KAZANDI'
+                WHERE id=?
+            """, (actual_change, current_price, sig["id"]))
+            results.append({"ticker": sig["ticker"], "result": "✅ KAZANDI", "actual": actual_change})
+            
+        elif hit_stop:
             conn.execute("""
                 UPDATE signals SET 
                     status='STOP', 
@@ -461,106 +482,13 @@ def check_stop_loss():
                     result='🛑 STOP OLDU'
                 WHERE id=?
             """, (actual_change, current_price, sig["id"]))
+            results.append({"ticker": sig["ticker"], "result": "🛑 STOP OLDU", "actual": actual_change})
             
-            stopped.append({
-                "id": sig["id"],
-                "ticker": sig["ticker"],
-                "direction": sig["direction"],
-                "expected": sig["expected_change_pct"],
-                "actual": actual_change,
-                "stop_loss_pct": stop_loss_pct,
-            })
-            print(f"  🛑 STOP: {sig['ticker']} - Beklenen: %{sig['expected_change_pct']:+.2f}, Gerçek: %{actual_change:+.2f}")
-    
-    if stopped:
-        conn.commit()
-        # Stop olduğunda backtest çalıştır (öğrensin)
-        run_backtest_learning()
-    conn.close()
-    return stopped
-
-
-def check_signal_results():
-    """
-    Süresi dolan sinyallerin sonuçlarını kontrol eder.
-    Gerçek fiyatla karşılaştırıp BAŞARILI/BAŞARISIZ olarak işaretler.
-    Ayrıca stop-loss kontrolü yapar.
-    """
-    # Önce stop-loss kontrolü
-    check_stop_loss()
-    
-    conn = get_connection()
-    
-    # Süresi dolmuş ama henüz kontrol edilmemiş sinyaller
-    active_signals = conn.execute("""
-        SELECT * FROM signals WHERE status = 'AKTIF'
-    """).fetchall()
-    
-    results = []
-    for sig in active_signals:
-        end_date_str = sig["end_date"]
-        try:
-            if " " in end_date_str:
-                end_dt = datetime.strptime(end_date_str, "%d.%m.%Y %H:%M")
-            else:
-                end_dt = datetime.strptime(end_date_str, "%d.%m.%Y")
-        except ValueError:
-            continue
-        
-        from config import TZ_TURKEY
-        if datetime.now(TZ_TURKEY).replace(tzinfo=None) < end_dt:
-            continue  # Henüz süresi dolmamış
-        
-        ticker_yf = sig["ticker_yf"]
-        
-        # Son fiyatı al
-        price_row = conn.execute(
-            "SELECT close FROM price_data WHERE ticker=? ORDER BY date DESC LIMIT 1",
-            (ticker_yf,)
-        ).fetchone()
-        
-        if not price_row or not sig["price_at_signal"]:
-            continue
-        
-        end_price = price_row["close"]
-        start_price = sig["price_at_signal"]
-        actual_change = round(((end_price - start_price) / start_price) * 100, 2)
-        
-        # Yön doğru mu?
-        expected = sig["expected_change_pct"]
-        if (expected > 0 and actual_change > 0) or (expected < 0 and actual_change < 0):
-            result = "✅ KAZANDI"
-            status = "KAZANDI"
-        else:
-            result = "❌ BAŞARISIZ"
-            status = "TAMAMLANDI"
-        
-        # Güncelle
-        conn.execute("""
-            UPDATE signals SET 
-                status=?, 
-                actual_change_pct=?,
-                price_at_end=?,
-                result=?
-            WHERE id=?
-        """, (status, actual_change, end_price, result, sig["id"]))
-        
-        results.append({
-            "id": sig["id"],
-            "ticker": sig["ticker"],
-            "direction": sig["direction"],
-            "expected": expected,
-            "actual": actual_change,
-            "result": result,
-        })
-    
-    conn.commit()
-    conn.close()
-    
-    # Her kontrol sonrası backtest çalıştır
     if results:
+        conn.commit()
         run_backtest_learning()
-    
+        
+    conn.close()
     return results
 
 
