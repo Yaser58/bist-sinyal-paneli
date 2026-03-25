@@ -205,21 +205,23 @@ def fetch_realtime_prices():
                                       round(float(b["lastPrice"]), 6), int(float(b["volume"])))
                     success = True
                 
-                # Kaynak 3: Yahoo Finance (TRUMP gibi Binance dışı coinler için)
-                if not success:
+                # Kaynak 3: Yahoo Finance (TRUMP gibi Binance dışı coinler için ANA KAYNAK)
+                if not success or base_sym == "TRUMP":
                     try:
-                        # TRUMP-USD vb. için daha basit ve hata vermeyen çekim
+                        # TRUMP-USD vb. için doğrudan 1 dakikalık veri
                         ticker_yf = yf.Ticker(ticker)
                         df = ticker_yf.history(period="1d", interval="1m")
                         if df.empty:
-                            df = ticker_yf.history(period="5d", interval="1d") # fallback
+                            df = ticker_yf.history(period="3d")
                             
                         if not df.empty:
                             row = df.iloc[-1]
-                            insert_price_data(ticker, today_crypto_str, round(float(df["Open"].iloc[0]), 6), 
-                                              round(float(df["High"].max()), 6), round(float(df["Low"].min()), 6), 
-                                              round(float(row["Close"]), 6), int(df["Volume"].sum()) if "Volume" in df else 0)
+                            # Fiyat verisini kaydet
+                            insert_price_data(ticker, today_crypto_str, round(float(df["Open"].iloc[0]), 8), 
+                                              round(float(df["High"].max()), 8), round(float(df["Low"].min()), 8), 
+                                              round(float(row["Close"]), 8), int(df["Volume"].sum()) if "Volume" in df else 0)
                             success = True
+                            print(f"  [OK] {ticker} YF ile guncellendi: {row['Close']}")
                     except Exception as e: 
                         print(f"  [UYARI] {ticker} YF hatasi: {e}")
                 

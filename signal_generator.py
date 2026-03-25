@@ -173,7 +173,23 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     ).fetchone()
     
     current_price = price_row["close"] if price_row else None
-    last_date = price_row["date"] if price_row else None
+    
+    # 1.1 Fiyat yoksa anlık çekmeyi dene (Örn: TRUMP yeni sinyal)
+    if not current_price:
+        try:
+            import yfinance as yf
+            ticker_obj = yf.Ticker(yf_ticker)
+            df = ticker_obj.history(period="1d", interval="1m")
+            if df.empty:
+                df = ticker_obj.history(period="5d")
+            
+            if not df.empty:
+                current_price = df["Close"].iloc[-1]
+                print(f"  [LIVE FAILSAFE] {yf_ticker} için anlık fiyat çekildi: {current_price}")
+        except Exception as e:
+            print(f"  [HATA] Live failsafe fetch: {e}")
+            
+    last_date = price_row["date"] if price_row else datetime.now().strftime("%Y-%m-%d")
     
     # 2. Son 30 günlük fiyat trendi
     trend_rows = conn.execute(

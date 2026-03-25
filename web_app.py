@@ -735,9 +735,13 @@ DASHBOARD_HTML = """
     function openChart(ticker, isCrypto) {
         document.getElementById('tv-overlay').style.display = 'flex';
         let prefix = isCrypto ? "BINANCE:" : "BIST:";
-        if (isCrypto && ['XRPUSD','SOLUSD','ADAUSD','TRUMPUSD'].includes(ticker)) prefix = "BINANCE:"; // Crypto borsası ayarlama
-        if (isCrypto) ticker = ticker + "T"; // USDT formatına çevir Binance için, örneğin BTCUSDT
-        // TRUMP için gateio, mexc vb seçilebilir, örneğin TRUMPUSDT genelde mexc vb'de bulunur.
+        
+        if (isCrypto) {
+            if (ticker === 'TRUMPUSD') {
+                prefix = "MEXC:"; // TRUMP Binance'ta yok, MEXC'de var
+            }
+            ticker = ticker + "T"; // BTCUSD -> BTCUSDT
+        }
 
         new TradingView.widget({
             "autosize": true,
