@@ -21,7 +21,7 @@ def fetch_all_historical_prices():
 
     total = 0
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=HISTORY_DAYS)
+    start_date = end_date - timedelta(days=30) # Açılışta hızlı olması için 30 gün kafi (Haber etkisi için)
 
     # 1. BIST YF Çeki
     try:
@@ -162,74 +162,65 @@ def fetch_realtime_prices():
                 except Exception:
                     pass
         
-        # 2. Kripto Fiyatları (Binance Futures & Spot Fallback)
+        # 2. Kripto Fiyatları (Per-Ticker Resilience: Futures -> Spot -> YF)
         count_crypto = 0
         from config import TZ_TURKEY
         import requests
+        import yfinance as yf
         today_crypto_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
         
+        # Toplu veri çekme (Hız için)
+        futures_map = {}
+        spot_map = {}
         try:
-            req = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", headers=headers, timeout=10)
-            spot_map = {}
-            if req.status_code == 200:
-                data = req.json()
-                binance_map = {item["symbol"]: item for item in data}
-                
-                # Spot yedeği (TRUMPUSDT gibi Futures'te olmayanlar için)
-                try:
-                    r_spot = requests.get("https://api.binance.com/api/v3/ticker/24hr", headers=headers, timeout=5)
-                    if r_spot.status_code == 200:
-                        spot_map = {item["symbol"]: item for item in r_spot.json()}
-                except: pass
-                
-                for ticker in CRYPTO_TICKERS:
-                    binance_symbol = ticker.split("-")[0] + "USDT"
-                    b_data = None
-                    
-                    if binance_symbol in binance_map:
-                        b_data = binance_map[binance_symbol]
-                    elif binance_symbol in spot_map:
-                        b_data = spot_map[binance_symbol]
-                        
-                    if b_data:
-                        insert_price_data(
-                            ticker=ticker,
-                            date_str=today_crypto_str,
-                            open_p=round(float(b_data.get("openPrice", 0)), 6),
-                            high=round(float(b_data.get("highPrice", 0)), 6),
-                            low=round(float(b_data.get("lowPrice", 0)), 6),
-                            close=round(float(b_data.get("lastPrice", 0)), 6),
-                            volume=int(float(b_data.get("volume", 0)))
-                        )
-                        count_crypto += 1
-                    else:
-                        raise Exception(f"{ticker} Binance'ta bulunamadı")
-        except Exception as e:
-            print(f"  [HATA] Binance Kripto fiyat çekme sorunu: {e} - YF Yedeğine geçiliyor...")
+            r_f = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", headers=headers, timeout=5)
+            if r_f.status_code == 200:
+                futures_map = {item["symbol"]: item for item in r_f.json()}
+            
+            r_s = requests.get("https://api.binance.com/api/v3/ticker/24hr", headers=headers, timeout=5)
+            if r_s.status_code == 200:
+                spot_map = {item["symbol"]: item for item in r_s.json()}
+        except: pass
+
+        for ticker in CRYPTO_TICKERS:
             try:
-                import yfinance as yf
-                crypto_str = " ".join(CRYPTO_TICKERS)
-                df_crypto = yf.download(crypto_str, period="1d", interval="1m", progress=False, group_by="ticker")
-                for ticker in CRYPTO_TICKERS:
+                success = False
+                base_sym = ticker.split("-")[0]
+                binance_sym = base_sym + "USDT"
+                
+                # Kaynak 1: Binance Futures
+                if binance_sym in futures_map:
+                    b = futures_map[binance_sym]
+                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 6), 
+                                      round(float(b["highPrice"]), 6), round(float(b["lowPrice"]), 6), 
+                                      round(float(b["lastPrice"]), 6), int(float(b["volume"])))
+                    success = True
+                
+                # Kaynak 2: Binance Spot
+                if not success and binance_sym in spot_map:
+                    b = spot_map[binance_sym]
+                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 6), 
+                                      round(float(b["highPrice"]), 6), round(float(b["lowPrice"]), 6), 
+                                      round(float(b["lastPrice"]), 6), int(float(b["volume"])))
+                    success = True
+                
+                # Kaynak 3: Yahoo Finance (TRUMP gibi Binance dışı coinler için)
+                if not success:
                     try:
-                        ticker_data = df_crypto[ticker] if len(CRYPTO_TICKERS) > 1 else df_crypto
-                        ticker_data = ticker_data.dropna(subset=["Close"])
-                        if ticker_data.empty: continue
-                        last_row = ticker_data.iloc[-1]
-                        insert_price_data(
-                            ticker=ticker,
-                            date_str=today_crypto_str,
-                            open_p=round(float(ticker_data["Open"].iloc[0]), 6),
-                            high=round(float(ticker_data["High"].max()), 6),
-                            low=round(float(ticker_data["Low"].min()), 6),
-                            close=round(float(last_row["Close"]), 6),
-                            volume=int(ticker_data["Volume"].sum() if pd.notna(ticker_data["Volume"].sum()) else 0)
-                        )
-                        count_crypto += 1
-                    except Exception: pass
-            except Exception as e2:
-                print(f"  [HATA] YF Kripto Yedek hatası: {e2}")
+                        ticker_yf = yf.Ticker(ticker)
+                        df = ticker_yf.history(period="1d", interval="1m")
+                        if not df.empty:
+                            row = df.iloc[-1]
+                            insert_price_data(ticker, today_crypto_str, round(float(df["Open"].iloc[0]), 6), 
+                                              round(float(df["High"].max()), 6), round(float(df["Low"].min()), 6), 
+                                              round(float(row["Close"]), 6), int(df["Volume"].sum()))
+                            success = True
+                    except: pass
+                
+                if success: count_crypto += 1
+            except Exception as e:
+                print(f"  [UYARI] {ticker} fiyati guncellenemedi: {e}")
 
         print(f"  ✅ {count_bist + count_crypto}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
         return count_bist + count_crypto
@@ -252,57 +243,54 @@ def fetch_latest_prices_fast():
     for ticker in ALL_TICKERS:
         try:
             if ticker in CRYPTO_TICKERS:
-                # Binance Hızlı Çekim
+                # Binance -> YF Resilience
                 import requests
+                import yfinance as yf
                 headers = {"User-Agent": "Mozilla/5.0"}
-                binance_symbol = ticker.split("-")[0] + "USDT"
-                url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={binance_symbol}"
-                req = requests.get(url, headers=headers, timeout=5)
+                base_sym = ticker.split("-")[0]
+                binance_sym = base_sym + "USDT"
+                success = False
                 
-                if req.status_code != 200:
-                    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={binance_symbol}"
-                    req = requests.get(url, headers=headers, timeout=5)
-                    
-                if req.status_code == 200:
-                    b_data = req.json()
-                    insert_price_data(
-                        ticker=ticker,
-                        date_str=today_str,
-                        open_p=round(float(b_data.get("openPrice", 0)), 6),
-                        high=round(float(b_data.get("highPrice", 0)), 6),
-                        low=round(float(b_data.get("lowPrice", 0)), 6),
-                        close=round(float(b_data.get("lastPrice", 0)), 6),
-                        volume=int(float(b_data.get("volume", 0)))
-                    )
-                    total += 1
-                else:
-                    raise Exception("Binance'ta bulunamadi")
+                # 1. Binance (Futures or Spot)
+                urls = [f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={binance_sym}", 
+                        f"https://api.binance.com/api/v3/ticker/24hr?symbol={binance_sym}"]
+                for url in urls:
+                    try:
+                        req = requests.get(url, headers=headers, timeout=5)
+                        if req.status_code == 200:
+                            b = req.json()
+                            insert_price_data(ticker, today_str, round(float(b["openPrice"]), 6), 
+                                              round(float(b["highPrice"]), 6), round(float(b["lowPrice"]), 6), 
+                                              round(float(b["lastPrice"]), 6), int(float(b["volume"])))
+                            success = True
+                            break
+                    except: continue
+                
+                # 2. Yahoo Finance Fallback
+                if not success:
+                    try:
+                        stock = yf.Ticker(ticker)
+                        df = stock.history(period="1d")
+                        if not df.empty:
+                            row = df.iloc[-1]
+                            insert_price_data(ticker, today_str, round(row["Open"], 6), round(row["High"], 6), 
+                                              round(row["Low"], 6), round(row["Close"], 6), int(row["Volume"]))
+                            success = True
+                    except: pass
+                
+                if success: total += 1
             else:
-                raise Exception("BIST") # BIST veya YF Fallback tetikle
-        except Exception:
-            try:
+                # BIST yfinance
+                import yfinance as yf
                 stock = yf.Ticker(ticker)
-                # Sadece bugünün verisi (hızlı)
                 df = stock.history(period="1d")
-                
-                if df.empty:
-                    continue
-                
-                row = df.iloc[-1]
-                date_str = df.index[-1].strftime("%Y-%m-%d")
-                
-                insert_price_data(
-                    ticker=ticker,
-                    date_str=date_str,
-                    open_p=round(row["Open"], 4),
-                    high=round(row["High"], 4),
-                    low=round(row["Low"], 4),
-                    close=round(row["Close"], 4),
-                    volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
-                )
-                total += 1
-            except Exception:
-                pass
+                if not df.empty:
+                    row = df.iloc[-1]
+                    insert_price_data(ticker, today_str, round(row["Open"], 4), round(row["High"], 4), 
+                                      round(row["Low"], 4), round(row["Close"], 4), int(row["Volume"]))
+                    total += 1
+        except Exception:
+            pass
     
     print(f"  ✅ {total}/{len(ALL_TICKERS)} hisse güncellendi.")
     return total

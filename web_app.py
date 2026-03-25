@@ -141,22 +141,30 @@ def background_worker():
             
             bist = get_bist_status()
             is_open = bist["open"]
-            
-            print(f"\n[WORKER] Döngü #{worker_status['cycle']} - {worker_status['last_check']} - BIST: {'AÇIK' if is_open else 'KAPALI'}")
+            print(f"\n[WORKER] Döngü #{worker_status['cycle']} - {worker_status['last_check']}")
 
-            # Her döngüde fiyat güncelle
-            fetch_latest_prices()
+            # 1. Fiyatları Güncelle (Hata olsa da devam et)
+            try: fetch_latest_prices()
+            except Exception as e: print(f"  [UYARI] Fiyat gunceleme: {e}")
             
-            # Stop-loss ve sinyal kontrolü her döngüde
-            check_signal_results()
+            # 2. Sinyal Kontrolü
+            try: check_signal_results()
+            except Exception as e: print(f"  [UYARI] Sinyal kontrol: {e}")
             
-            # Haber ve sinyal analizi her 5. döngüde (BIST açıkken)
-            # veya her döngüde (BIST kapalıyken)
+            # 3. Haberler
             do_news = (not is_open) or (worker_status["cycle"] % 5 == 1)
-            
             if do_news:
-                fetch_kap_notifications()
-                fetch_all_feeds()
+                try: fetch_kap_notifications(); fetch_all_feeds()
+                except Exception as e: print(f"  [UYARI] Haber cekme: {e}")
+            
+            # 4. Proaktif Tarama (Yeni Sinyal Arayışı)
+            if worker_status["cycle"] % 10 == 0:
+                try: 
+                    tech_signals = run_proactive_scan()
+                    for sig in tech_signals[:3]:
+                        save_signal(sig)
+                        worker_status["total_signals"] += 1
+                except: pass
 
                 unprocessed = get_unprocessed_news()
                 for news in unprocessed:
@@ -989,19 +997,28 @@ def api_status():
 def _heavy_init():
     """Ağır işlemleri arka planda yapar (fiyat çekme, haber toplama)."""
     try:
-        print("  [1/3] Fiyat verileri çekiliyor...")
-        fetch_all_historical_prices()
-        # Tarih ve saat karmaşasını engellemek için anında Bybit futures canlı verilerini de çek
-        fetch_latest_prices()
+        # Önce hızlıca canlı fiyatları al ki panel dolu gözüksün
+        print("  [1/3] Hızlı canlı fiyatlar çekiliyor...")
+        try:
+            fetch_latest_prices()
+            worker_status["last_check"] = datetime.now(TZ_TURKEY).strftime("%d.%m.%Y %H:%M:%S")
+        except: pass
         
-        print("  [2/3] Haberler toplanıyor...")
-        fetch_kap_notifications()
-        fetch_all_feeds()
+        # Sonra geçmiş verileri arka planda (hafifleşmiş modda) topla
+        print("  [2/3] Geçmiş veriler ve Haberler toplanıyor...")
+        try:
+            fetch_all_historical_prices() # Artık daha hızlı (30 gün) çalışacak
+            fetch_kap_notifications()
+            fetch_all_feeds()
+        except: pass
+        
         print("  [3/3] Proaktif tarama yapılıyor...")
-        tech_signals = run_proactive_scan()
-        for sig in tech_signals[:5]:
-            save_signal(sig)
-            worker_status["total_signals"] += 1
+        try:
+            tech_signals = run_proactive_scan()
+            for sig in tech_signals[:5]:
+                save_signal(sig)
+                worker_status["total_signals"] += 1
+        except: pass
 
         unprocessed = get_unprocessed_news()
         for news in unprocessed:
