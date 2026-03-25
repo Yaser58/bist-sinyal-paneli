@@ -274,6 +274,13 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
         
     is_crypto = "-USD" in yf_ticker
     
+    # Değişimi belirle (sentiment_score ile yönü zorla)
+    # Eğer pozitif beklenti negatif çıkarsa veya tam tersi, sentiment'e göre düzelt
+    if sentiment_label == "positive" and expected_change < 0:
+        expected_change = abs(expected_change)
+    elif sentiment_label == "negative" and expected_change > 0:
+        expected_change = -abs(expected_change)
+
     # Kripto Karlılık Filtresi (Trende karşı açılan işlemleri reddet)
     if is_crypto:
         expected_change *= 2.0  # Kriptoda kar marjı genişletilmeli

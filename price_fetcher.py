@@ -208,15 +208,20 @@ def fetch_realtime_prices():
                 # Kaynak 3: Yahoo Finance (TRUMP gibi Binance dışı coinler için)
                 if not success:
                     try:
+                        # TRUMP-USD vb. için daha basit ve hata vermeyen çekim
                         ticker_yf = yf.Ticker(ticker)
                         df = ticker_yf.history(period="1d", interval="1m")
+                        if df.empty:
+                            df = ticker_yf.history(period="5d", interval="1d") # fallback
+                            
                         if not df.empty:
                             row = df.iloc[-1]
                             insert_price_data(ticker, today_crypto_str, round(float(df["Open"].iloc[0]), 6), 
                                               round(float(df["High"].max()), 6), round(float(df["Low"].min()), 6), 
-                                              round(float(row["Close"]), 6), int(df["Volume"].sum()))
+                                              round(float(row["Close"]), 6), int(df["Volume"].sum()) if "Volume" in df else 0)
                             success = True
-                    except: pass
+                    except Exception as e: 
+                        print(f"  [UYARI] {ticker} YF hatasi: {e}")
                 
                 if success: count_crypto += 1
             except Exception as e:

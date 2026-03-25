@@ -132,81 +132,94 @@ def get_live_prices(asset_type="bist", search=None, limit=50):
 def background_worker():
     """Sürekli çalışan arka plan işçisi. BIST açıkken daha sık çalışır."""
     global worker_status
+    from config import TZ_TURKEY
+    import time
+    import json
+    
     worker_status["running"] = True
 
     while worker_status["running"]:
         try:
             worker_status["cycle"] += 1
-            worker_status["last_check"] = datetime.now(TZ_TURKEY).strftime("%d.%m.%Y %H:%M:%S")
+            now_dt = datetime.now(TZ_TURKEY)
+            worker_status["last_check"] = now_dt.strftime("%d.%m.%Y %H:%M:%S")
+            print(f"\n[WORKER] Döngü #{worker_status['cycle']} BAŞLIYOR - {worker_status['last_check']}")
             
+            # 1. CANLI FİYATLAR (En kritik)
+            try:
+                print("  [1/4] Fiyatlar güncelleniyor...")
+                fetch_latest_prices()
+            except Exception as e:
+                print(f"  [UYARI] Fiyat gunceleme: {e}")
+
+            # 2. SİNYAL SONUÇLARI (Stop / Kâr)
+            try:
+                print("  [2/4] Sinyaller kontrol ediliyor...")
+                check_signal_results()
+            except Exception as e:
+                print(f"  [UYARI] Sinyal kontrol: {e}")
+
+            # 3. HABER TOPLAMA VE İŞLEME
             bist = get_bist_status()
             is_open = bist["open"]
-            print(f"\n[WORKER] Döngü #{worker_status['cycle']} - {worker_status['last_check']}")
-
-            # 1. Fiyatları Güncelle (Hata olsa da devam et)
-            try: fetch_latest_prices()
-            except Exception as e: print(f"  [UYARI] Fiyat gunceleme: {e}")
+            do_news = (worker_status["cycle"] == 1) or (not is_open) or (worker_status["cycle"] % 3 == 0)
             
-            # 2. Sinyal Kontrolü
-            try: check_signal_results()
-            except Exception as e: print(f"  [UYARI] Sinyal kontrol: {e}")
-            
-            # 3. Haberler
-            do_news = (not is_open) or (worker_status["cycle"] % 5 == 1)
             if do_news:
-                try: fetch_kap_notifications(); fetch_all_feeds()
-                except Exception as e: print(f"  [UYARI] Haber cekme: {e}")
-            
-            # 4. Proaktif Tarama (Yeni Sinyal Arayışı)
+                try:
+                    print("  [3/4] Haberler taranıyor ve işleniyor...")
+                    fetch_kap_notifications()
+                    fetch_all_feeds()
+                    
+                    unprocessed = get_unprocessed_news()
+                    for news in unprocessed:
+                        try:
+                            result = process_news_item(news)
+                            update_news_sentiment(
+                                news_id=result["news_id"],
+                                sentiment_score=result["sentiment_score"],
+                                sentiment_label=result["sentiment_label"],
+                                related_tickers=json.dumps(result["tickers"]),
+                                is_macro=result["is_macro"],
+                                macro_keywords=json.dumps(result["macro_keywords"])
+                            )
+                            if result["sentiment_label"] != "neutral" or result["is_macro"]:
+                                # Sinyal üret
+                                targets = result["tickers"]
+                                if result["is_macro"] and not targets:
+                                    # Makro haber sinyalleri (BIST genel)
+                                    sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
+                                    worker_status["total_signals"] += len(sigs)
+                                else:
+                                    for tc in targets:
+                                        sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
+                                        if sig:
+                                            worker_status["total_signals"] += 1
+                        except Exception as ne:
+                            print(f"  [UYARI] Haber isleme hatasi: {ne}")
+                except Exception as e:
+                    print(f"  [UYARI] Haber cekme hatasi: {e}")
+
+            # 4. TEKNİK TARAMA (Proaktif)
             if worker_status["cycle"] % 10 == 0:
-                try: 
+                try:
+                    print("  [4/4] Teknik tarama yapılıyor...")
                     tech_signals = run_proactive_scan()
                     for sig in tech_signals[:3]:
                         save_signal(sig)
                         worker_status["total_signals"] += 1
-                except: pass
+                except Exception as e:
+                    print(f"  [UYARI] Teknik tarama hatasi: {e}")
 
-                unprocessed = get_unprocessed_news()
-                for news in unprocessed:
-                    result = process_news_item(news)
-                    tickers_json = json.dumps(result["tickers"])
-                    macro_json = json.dumps(result["macro_keywords"]) if result["macro_keywords"] else None
-                    update_news_sentiment(
-                        news_id=result["news_id"],
-                        sentiment_score=result["sentiment_score"],
-                        sentiment_label=result["sentiment_label"],
-                        related_tickers=tickers_json,
-                        is_macro=result["is_macro"],
-                        macro_keywords=macro_json
-                    )
-                    if result["sentiment_label"] == "neutral" and not result["is_macro"]:
-                        continue
-                    targets = result["tickers"]
-                    if result["is_macro"] and not targets:
-                        sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
-                        worker_status["total_signals"] += len(sigs)
-                    else:
-                        for tc in targets:
-                            sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
-                            if sig:
-                                worker_status["total_signals"] += 1
-
-            if worker_status["cycle"] % 10 == 1:
-                tech_signals = run_proactive_scan()
-                for sig in tech_signals[:5]:
-                    save_signal(sig)
-                    worker_status["total_signals"] += 1
-
-            print(f"[WORKER] Döngü tamamlandı. Toplam sinyal: {worker_status['total_signals']}")
+            print(f"  ✅ Döngü #{worker_status['cycle']} tamamlandı. 60sn uykuya geçiliyor...")
+            time.sleep(60)
+            
         except Exception as e:
             error_msg = f"{datetime.now(TZ_TURKEY).strftime('%H:%M:%S')} - {str(e)}"
             worker_status["errors"].append(error_msg)
             if len(worker_status["errors"]) > 20:
                 worker_status["errors"] = worker_status["errors"][-20:]
             print(f"[WORKER HATA] {e}")
-
-        # Kriptolar 7/24 açık olduğu için döngü her zaman 60 saniyede bir çalışsın!
-        time.sleep(60)
+            time.sleep(10)
 
 
 # ─── HTML Template ────────────────────────────────────────────
