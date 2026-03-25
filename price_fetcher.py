@@ -203,8 +203,33 @@ def fetch_realtime_prices():
                             volume=int(float(b_data.get("volume", 0)))
                         )
                         count_crypto += 1
+                    else:
+                        raise Exception(f"{ticker} Binance'ta bulunamadı")
         except Exception as e:
-            print(f"  [HATA] Binance Kripto fiyat çekme hatası: {e}")
+            print(f"  [HATA] Binance Kripto fiyat çekme sorunu: {e} - YF Yedeğine geçiliyor...")
+            try:
+                import yfinance as yf
+                crypto_str = " ".join(CRYPTO_TICKERS)
+                df_crypto = yf.download(crypto_str, period="1d", interval="1m", progress=False, group_by="ticker")
+                for ticker in CRYPTO_TICKERS:
+                    try:
+                        ticker_data = df_crypto[ticker] if len(CRYPTO_TICKERS) > 1 else df_crypto
+                        ticker_data = ticker_data.dropna(subset=["Close"])
+                        if ticker_data.empty: continue
+                        last_row = ticker_data.iloc[-1]
+                        insert_price_data(
+                            ticker=ticker,
+                            date_str=today_crypto_str,
+                            open_p=round(float(ticker_data["Open"].iloc[0]), 6),
+                            high=round(float(ticker_data["High"].max()), 6),
+                            low=round(float(ticker_data["Low"].min()), 6),
+                            close=round(float(last_row["Close"]), 6),
+                            volume=int(ticker_data["Volume"].sum() if pd.notna(ticker_data["Volume"].sum()) else 0)
+                        )
+                        count_crypto += 1
+                    except Exception: pass
+            except Exception as e2:
+                print(f"  [HATA] YF Kripto Yedek hatası: {e2}")
 
         print(f"  ✅ {count_bist + count_crypto}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
         return count_bist + count_crypto
@@ -250,7 +275,12 @@ def fetch_latest_prices_fast():
                         volume=int(float(b_data.get("volume", 0)))
                     )
                     total += 1
+                else:
+                    raise Exception("Binance'ta bulunamadi")
             else:
+                raise Exception("BIST") # BIST veya YF Fallback tetikle
+        except Exception:
+            try:
                 stock = yf.Ticker(ticker)
                 # Sadece bugünün verisi (hızlı)
                 df = stock.history(period="1d")
@@ -271,8 +301,8 @@ def fetch_latest_prices_fast():
                     volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
                 )
                 total += 1
-        except Exception:
-            pass
+            except Exception:
+                pass
     
     print(f"  ✅ {total}/{len(ALL_TICKERS)} hisse güncellendi.")
     return total
