@@ -817,7 +817,7 @@ def _get_common_context():
         "news_count": news_count,
         "last_check": worker_status["last_check"],
         "cycle": worker_status["cycle"],
-        "price_count": len(BIST_TICKERS),
+        "price_count": len(BIST_TICKERS) + len(CRYPTO_TICKERS),
         "bist": bist,
         "backtest": backtest,
         "turkey_time": turkey_time,

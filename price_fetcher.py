@@ -70,13 +70,19 @@ def fetch_all_historical_prices():
     except Exception as e:
         print(f"  [HATA] BIST geçmiş fiyat çekme hatası: {e}")
 
-    # 2. Kripto Binance Futures Çeki
+    # 2. Kripto Binance Futures / Spot Çeki
     try:
         import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         for ticker in CRYPTO_TICKERS:
             binance_symbol = ticker.split("-")[0] + "USDT"
             url = f"https://fapi.binance.com/fapi/v1/klines?symbol={binance_symbol}&interval=1d&limit=500"
-            req = requests.get(url, timeout=10)
+            req = requests.get(url, headers=headers, timeout=10)
+            
+            # Futures'ta yoksa (örn. TRUMP) Spot'tan dene
+            if req.status_code != 200:
+                url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1d&limit=500"
+                req = requests.get(url, headers=headers, timeout=10)
             if req.status_code == 200:
                 kline_list = req.json()
                 
@@ -156,23 +162,37 @@ def fetch_realtime_prices():
                 except Exception:
                     pass
         
-        # 2. Kripto Fiyatları (Binance Futures)
+        # 2. Kripto Fiyatları (Binance Futures & Spot Fallback)
         count_crypto = 0
         from config import TZ_TURKEY
         import requests
         today_crypto_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         
         try:
-            req = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=10)
+            req = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", headers=headers, timeout=10)
+            spot_map = {}
             if req.status_code == 200:
                 data = req.json()
                 binance_map = {item["symbol"]: item for item in data}
                 
+                # Spot yedeği (TRUMPUSDT gibi Futures'te olmayanlar için)
+                try:
+                    r_spot = requests.get("https://api.binance.com/api/v3/ticker/24hr", headers=headers, timeout=5)
+                    if r_spot.status_code == 200:
+                        spot_map = {item["symbol"]: item for item in r_spot.json()}
+                except: pass
+                
                 for ticker in CRYPTO_TICKERS:
                     binance_symbol = ticker.split("-")[0] + "USDT"
+                    b_data = None
                     
                     if binance_symbol in binance_map:
                         b_data = binance_map[binance_symbol]
+                    elif binance_symbol in spot_map:
+                        b_data = spot_map[binance_symbol]
+                        
+                    if b_data:
                         insert_price_data(
                             ticker=ticker,
                             date_str=today_crypto_str,
@@ -209,8 +229,15 @@ def fetch_latest_prices_fast():
             if ticker in CRYPTO_TICKERS:
                 # Binance Hızlı Çekim
                 import requests
+                headers = {"User-Agent": "Mozilla/5.0"}
                 binance_symbol = ticker.split("-")[0] + "USDT"
-                req = requests.get(f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={binance_symbol}", timeout=5)
+                url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={binance_symbol}"
+                req = requests.get(url, headers=headers, timeout=5)
+                
+                if req.status_code != 200:
+                    url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={binance_symbol}"
+                    req = requests.get(url, headers=headers, timeout=5)
+                    
                 if req.status_code == 200:
                     b_data = req.json()
                     insert_price_data(
