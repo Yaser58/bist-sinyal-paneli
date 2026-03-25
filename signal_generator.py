@@ -332,10 +332,11 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     
     # Stop fiyatı hesapla
     if current_price:
+        decimals = 6 if is_crypto else 2
         if "YÜKSELİŞ" in direction:
-            stop_price = round(current_price * (1 - stop_loss_pct / 100), 2)
+            stop_price = round(current_price * (1 - stop_loss_pct / 100), decimals)
         else:
-            stop_price = round(current_price * (1 + stop_loss_pct / 100), 2)
+            stop_price = round(current_price * (1 + stop_loss_pct / 100), decimals)
     else:
         stop_price = None
     

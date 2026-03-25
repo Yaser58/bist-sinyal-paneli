@@ -70,20 +70,19 @@ def fetch_all_historical_prices():
     except Exception as e:
         print(f"  [HATA] BIST geçmiş fiyat çekme hatası: {e}")
 
-    # 2. BYBIT Kripto Klasik Kline (Geçmiş) API
+    # 2. Kripto Binance Futures Çeki
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         for ticker in CRYPTO_TICKERS:
-            bybit_symbol = ticker.split("-")[0] + "USDT"
-            req = requests.get(f"https://api.bybit.com/v5/market/kline?category=linear&symbol={bybit_symbol}&interval=D&limit=500", headers=headers, timeout=10)
+            binance_symbol = ticker.split("-")[0] + "USDT"
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={binance_symbol}&interval=1d&limit=500"
+            req = requests.get(url, timeout=10)
             if req.status_code == 200:
-                kline_list = req.json().get("result", {}).get("list", [])
+                kline_list = req.json()
                 
                 records = []
-                # Bybit listesi en yeniden eskiye geliyor, iterasyon yapalım.
                 for item in kline_list:
-                    # item format: [startTime, open, high, low, close, volume, turnover]
+                    # item format: [Open time, Open, High, Low, Close, Volume, ...]
                     ts = int(item[0]) / 1000.0
                     date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
                     records.append((
@@ -95,10 +94,10 @@ def fetch_all_historical_prices():
                 
                 if records:
                     insert_price_data_bulk(records)
-                    print(f"  ✅ {ticker}: {len(records)} gün geçmiş Bybit verisi kaydedildi.")
+                    print(f"  ✅ {ticker}: {len(records)} gün geçmiş Binance Futures verisi kaydedildi.")
                     total += len(records)
     except Exception as e:
-        print(f"  [HATA] Bybit geçmiş fiyat çekme hatası: {e}")
+        print(f"  [HATA] Binance Kripto geçmiş fiyat çekme hatası: {e}")
 
     print(f"\n  📊 Toplam {total} fiyat kaydı oluşturuldu (BIST & BYBIT).")
     return total
@@ -157,36 +156,35 @@ def fetch_realtime_prices():
                 except Exception:
                     pass
         
-        # 2. Kripto Fiyatları (Bybit Futures)
+        # 2. Kripto Fiyatları (Binance Futures)
         count_crypto = 0
-        import requests
         from config import TZ_TURKEY
+        import requests
         today_crypto_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
         
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            req = requests.get("https://api.bybit.com/v5/market/tickers?category=linear", headers=headers, timeout=10)
+            req = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=10)
             if req.status_code == 200:
-                data = req.json().get("result", {}).get("list", [])
-                bybit_map = {item["symbol"]: item for item in data}
+                data = req.json()
+                binance_map = {item["symbol"]: item for item in data}
                 
                 for ticker in CRYPTO_TICKERS:
-                    bybit_symbol = ticker.split("-")[0] + "USDT"
+                    binance_symbol = ticker.split("-")[0] + "USDT"
                     
-                    if bybit_symbol in bybit_map:
-                        b_data = bybit_map[bybit_symbol]
+                    if binance_symbol in binance_map:
+                        b_data = binance_map[binance_symbol]
                         insert_price_data(
                             ticker=ticker,
                             date_str=today_crypto_str,
-                            open_p=round(float(b_data.get("prevPrice24h", 0)), 6),
-                            high=round(float(b_data.get("highPrice24h", 0)), 6),
-                            low=round(float(b_data.get("lowPrice24h", 0)), 6),
+                            open_p=round(float(b_data.get("openPrice", 0)), 6),
+                            high=round(float(b_data.get("highPrice", 0)), 6),
+                            low=round(float(b_data.get("lowPrice", 0)), 6),
                             close=round(float(b_data.get("lastPrice", 0)), 6),
-                            volume=int(float(b_data.get("volume24h", 0)))
+                            volume=int(float(b_data.get("volume", 0)))
                         )
                         count_crypto += 1
         except Exception as e:
-            print(f"  [HATA] Bybit Kripto fiyat çekme hatası: {e}")
+            print(f"  [HATA] Binance Kripto fiyat çekme hatası: {e}")
 
         print(f"  ✅ {count_bist + count_crypto}/{len(ALL_TICKERS)} sembol canlı fiyat güncellendi.")
         return count_bist + count_crypto
@@ -206,28 +204,46 @@ def fetch_latest_prices_fast():
     from config import TZ_TURKEY
     today_str = datetime.now(TZ_TURKEY).strftime("%Y-%m-%d")
     
-    for ticker in BIST_TICKERS:
+    for ticker in ALL_TICKERS:
         try:
-            stock = yf.Ticker(ticker)
-            # Sadece bugünün verisi (hızlı)
-            df = stock.history(period="1d")
-            
-            if df.empty:
-                continue
-            
-            row = df.iloc[-1]
-            date_str = df.index[-1].strftime("%Y-%m-%d")
-            
-            insert_price_data(
-                ticker=ticker,
-                date_str=date_str,
-                open_p=round(row["Open"], 4),
-                high=round(row["High"], 4),
-                low=round(row["Low"], 4),
-                close=round(row["Close"], 4),
-                volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
-            )
-            total += 1
+            if ticker in CRYPTO_TICKERS:
+                # Binance Hızlı Çekim
+                import requests
+                binance_symbol = ticker.split("-")[0] + "USDT"
+                req = requests.get(f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={binance_symbol}", timeout=5)
+                if req.status_code == 200:
+                    b_data = req.json()
+                    insert_price_data(
+                        ticker=ticker,
+                        date_str=today_str,
+                        open_p=round(float(b_data.get("openPrice", 0)), 6),
+                        high=round(float(b_data.get("highPrice", 0)), 6),
+                        low=round(float(b_data.get("lowPrice", 0)), 6),
+                        close=round(float(b_data.get("lastPrice", 0)), 6),
+                        volume=int(float(b_data.get("volume", 0)))
+                    )
+                    total += 1
+            else:
+                stock = yf.Ticker(ticker)
+                # Sadece bugünün verisi (hızlı)
+                df = stock.history(period="1d")
+                
+                if df.empty:
+                    continue
+                
+                row = df.iloc[-1]
+                date_str = df.index[-1].strftime("%Y-%m-%d")
+                
+                insert_price_data(
+                    ticker=ticker,
+                    date_str=date_str,
+                    open_p=round(row["Open"], 4),
+                    high=round(row["High"], 4),
+                    low=round(row["Low"], 4),
+                    close=round(row["Close"], 4),
+                    volume=int(row["Volume"]) if pd.notna(row["Volume"]) else 0
+                )
+                total += 1
         except Exception:
             pass
     
