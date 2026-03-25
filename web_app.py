@@ -81,48 +81,44 @@ def get_bist_status():
 def get_live_prices(asset_type="bist", search=None, limit=50):
     """Veritabanından en güncel hisse/coin fiyatlarını döndürür."""
     conn = get_connection()
-
     prices = []
     base_tickers = BIST_TICKERS if asset_type == "bist" else CRYPTO_TICKERS
-    tickers = base_tickers
     
-    if search:
-        search_lower = search.lower()
-        tickers = [t for t in base_tickers
-                   if search_lower in t.lower()
-                   or any(search_lower in name for names in COMPANY_NAMES.values()
-                          for name in names if t.replace(".IS","").replace("-USD","") in COMPANY_NAMES)]
-
-    for ticker_yf in tickers[:limit]:
-        rows = conn.execute(
-            "SELECT close, open, high, low, volume, date FROM price_data WHERE ticker=? ORDER BY date DESC LIMIT 2",
-            (ticker_yf,)
-        ).fetchall()
-
-        if not rows:
-            continue
-
-        current = rows[0]
-        prev_close = rows[1]["close"] if len(rows) > 1 else current["close"]
-        change = current["close"] - prev_close
-        change_pct = (change / prev_close * 100) if prev_close else 0
-
-        code = ticker_yf.replace(".IS", "").replace("-USD", "")
-        prices.append({
-            "ticker": code,
-            "ticker_tv": ticker_yf.replace(".IS", "").replace("-USD", "USD"), # TradingView for crypto is BTCUSD, bist is THYAO
-            "is_crypto": asset_type == "crypto",
-            "price": round(current["close"], 2 if asset_type == "bist" else 4),
-            "open": round(current["open"], 2 if asset_type == "bist" else 4),
-            "high": round(current["high"], 2 if asset_type == "bist" else 4),
-            "low": round(current["low"], 2 if asset_type == "bist" else 4),
-            "volume": current["volume"],
-            "change": round(change, 2),
-            "change_pct": round(change_pct, 2),
-            "date": current["date"],
-        })
-
+    for ticker_yf in base_tickers[:limit]:
+        try:
+            row = conn.execute(
+                "SELECT close, open, high, low, volume, date FROM price_data WHERE ticker=? ORDER BY date DESC LIMIT 1",
+                (ticker_yf,)
+            ).fetchone()
+            
+            p_data = {
+                "ticker": ticker_yf.replace(".IS", "").replace("-USD", ""),
+                "ticker_yf": ticker_yf,
+                "ticker_tv": ticker_yf.replace("-USD", "USD").replace(".IS", ""),
+                "price": round(row["close"], 4) if row and row["close"] else 0,
+                "open": round(row["open"], 4) if row and row["open"] else 0,
+                "high": round(row["high"], 4) if row and row["high"] else 0,
+                "low": round(row["low"], 4) if row and row["low"] else 0,
+                "date": row["date"] if row and row["date"] else "-",
+                "change_pct": 0,
+                "is_crypto": asset_type == "crypto"
+            }
+            
+            # Değişim hesapla
+            if row and row["date"]:
+                prev = conn.execute(
+                    "SELECT close FROM price_data WHERE ticker=? AND date < ? ORDER BY date DESC LIMIT 1",
+                    (ticker_yf, row["date"])
+                ).fetchone()
+                if prev and prev["close"]:
+                    p_data["change_pct"] = round(((row["close"] - prev["close"]) / prev["close"]) * 100, 2)
+            
+            prices.append(p_data)
+        except Exception as e:
+            print(f"  [HATA] get_live_prices loop: {e}")
+            
     conn.close()
+    # Değişime göre sırala (en hareketliler üstte)
     prices.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
     return prices
 
@@ -1063,20 +1059,33 @@ def _heavy_init():
         print("  ✅ Veri çekme tamamlandı!")
     except Exception as e:
         print(f"  [HATA] Init hatası: {e}")
+    
+    # background_worker artık bagimsiz thread olarak basliyor.
 
-    # Sonra sürekli çalışan worker'a geç
-    background_worker()
 
+# ─── Program Giriş Noktası ────────────────────────────────────
 
-# Sadece veritabanını oluştur (hızlı), ağır işleri arka plana at
 print("  ⚙️  Veritabanı hazırlanıyor...")
 init_db()
 init_signals_table()
 
-# Ağır işleri arka plan thread'de başlat (gunicorn'u BLOKE ETMEZ)
-init_thread = threading.Thread(target=_heavy_init, daemon=True)
-init_thread.start()
-print("  🚀 Arka plan worker başlatıldı, web sunucu hazır!")
+# 1. Thread: Hızlı arka plan worker (Canlı fiyatlar ve Kontrol)
+# Bu thread ağır işlerin bitmesini BEKLEMEZ, hemen çalışmaya başlar.
+worker_thread = threading.Thread(target=background_worker, daemon=True)
+worker_thread.start()
+print("  📡 Canlı Worker başlatıldı (Bağımsız).")
+
+# 2. Thread: Ağır init işlemleri (Geçmiş veriler, Haber tarama)
+# Bu thread arka planda ağır işleri yapar, ana worker'ı bloke etmez.
+def _start_heavy():
+    try: _heavy_init()
+    except Exception as e: print(f"  [UYARI] Ağır init hatası: {e}")
+
+heavy_thread = threading.Thread(target=_start_heavy, daemon=True)
+heavy_thread.start()
+
+print("  🚀 Sistem ayağa kalktı, web sunucu istekleri bekliyor!")
+
 
 
 def start_web_app(host="0.0.0.0", port=None):
