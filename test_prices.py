@@ -14,8 +14,4 @@ try:
 except Exception as e:
     print("Error:", e)
     
-try:
-    req = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=TRUMPUSDT", headers=headers, timeout=5)
-    print("Spot TRUMPUSDT:", req.status_code, req.json() if req.status_code == 200 else req.text)
-except Exception as e:
-    print("Error:", e)
+# Test bitti

@@ -191,6 +191,10 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
             
     last_date = price_row["date"] if price_row else datetime.now().strftime("%Y-%m-%d")
     
+    # 1.2 Eğer fiyat hala yoksa, sinyal üretme (Bilinmeyen sembol)
+    if not current_price:
+        return None
+    
     # 2. Son 30 günlük fiyat trendi
     trend_rows = conn.execute(
         "SELECT close, date FROM price_data WHERE ticker=? ORDER BY date DESC LIMIT 30",
@@ -297,13 +301,13 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     elif sentiment_label == "negative" and expected_change > 0:
         expected_change = -abs(expected_change)
 
-    # Kripto Karlılık Filtresi (Trende karşı açılan işlemleri reddet)
+    # Kripto Karlılık Filtresi (Trende karşı açılan işlemleri reddet - Gevşetildi)
     if is_crypto:
-        expected_change *= 2.0  # Kriptoda kar marjı genişletilmeli
-        if sentiment_label == 'positive' and trend_factor < -1.5:
-            return None # Kripto sert düşüşteyken iyi haber gelirse Long açma (Piyasa affetmez)
-        if sentiment_label == 'negative' and trend_factor > 1.5:
-            return None # Kripto boğadayken küçük kötü haberle Short açma
+        expected_change *= 2.5  # Kriptoda kar marjı biraz daha genişletildi
+        if sentiment_label == 'positive' and trend_factor < -4.0:
+            return None # Kripto çöküyorken (panik satış) Long açma
+        if sentiment_label == 'negative' and trend_factor > 4.0:
+            return None # Kripto uçuyorken (FOMO) Short açma
     
     # Yön belirleme — eşik backtest ile ayarlanır
     threshold = backtest_adjustments["min_score_threshold"]

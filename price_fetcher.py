@@ -205,10 +205,10 @@ def fetch_realtime_prices():
                                       round(float(b["lastPrice"]), 6), int(float(b["volume"])))
                     success = True
                 
-                # Kaynak 3: Yahoo Finance (TRUMP gibi Binance dışı coinler için ANA KAYNAK)
-                if not success or base_sym == "TRUMP":
+                # Kaynak 3: Yahoo Finance (Binance dışı coinler için Fallback)
+                if not success:
                     try:
-                        # TRUMP-USD vb. için doğrudan 1 dakikalık veri
+                        # Bazı coinler için doğrudan 1 dakikalık veri
                         ticker_yf = yf.Ticker(ticker)
                         df = ticker_yf.history(period="1d", interval="1m")
                         if df.empty:

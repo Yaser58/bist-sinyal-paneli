@@ -733,9 +733,6 @@ DASHBOARD_HTML = """
         let prefix = isCrypto ? "BINANCE:" : "BIST:";
         
         if (isCrypto) {
-            if (ticker === 'TRUMPUSD') {
-                prefix = "MEXC:"; // TRUMP Binance'ta yok, MEXC'de var
-            }
             ticker = ticker + "T"; // BTCUSD -> BTCUSDT
         }
 
@@ -829,9 +826,15 @@ def _get_common_context():
     news_count = news_count_row["c"] if news_count_row else 0
     conn.close()
 
+    # Toplam sinyal sayısı (Veritabanından)
+    conn = get_connection()
+    total_signals_row = conn.execute("SELECT COUNT(*) as c FROM signals WHERE status IN ('TAMAMLANDI', 'KAZANDI', 'STOP')").fetchone()
+    total_count = (total_signals_row["c"] if total_signals_row else 0) + len(get_active_signals())
+    conn.close()
+
     return {
         "active_count": len(get_active_signals()),
-        "total_signals": worker_status["total_signals"],
+        "total_signals": total_count,
         "success_rate": stats.get("rate", 0),
         "won_count": len(won),
         "stopped_count": len(stopped),

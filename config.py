@@ -39,6 +39,8 @@ RSS_FEEDS = {
     # Dünya / Savaş / Jeopolitik Haberler (borsayı etkileyen)
     "NTV_Dunya": "https://www.ntv.com.tr/dunya.rss",
     "Mynet_Dunya": "https://www.mynet.com/haber/rss/kategori/dunya",
+    # Kripto Haberleri
+    "UzmanCoin": "https://uzmancoin.com/feed/",
 }
 
 # ─── VİOP Pay Vadeli İşlem Sözleşmeleri (30 Hisse) ────────────
@@ -55,7 +57,8 @@ BIST_TICKERS = [
 # ─── Kripto Paralar ────────────────────────────────────────────
 # Sadece kullanıcının belirttiği coinler
 CRYPTO_TICKERS = [
-    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "TRUMP-USD", "ADA-USD"
+    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "ADA-USD",
+    "BNB-USD", "DOGE-USD", "PEPE-USD", "AVAX-USD", "LINK-USD"
 ]
 
 ALL_TICKERS = BIST_TICKERS + CRYPTO_TICKERS
@@ -101,8 +104,12 @@ COMPANY_NAMES = {
     "ETH": ["ethereum", "eth"],
     "XRP": ["ripple", "xrp"],
     "SOL": ["solana", "sol", "solano"],
-    "TRUMP": ["trump", "maga"],
     "ADA": ["cardano", "ada"],
+    "BNB": ["binance coin", "bnb"],
+    "DOGE": ["dogecoin", "doge"],
+    "PEPE": ["pepe"],
+    "AVAX": ["avalanche", "avax"],
+    "LINK": ["chainlink", "link"],
 }
 
 # ─── NLP Modeli ───────────────────────────────────────────────
