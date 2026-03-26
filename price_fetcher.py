@@ -192,17 +192,17 @@ def fetch_realtime_prices():
                 # Kaynak 1: Binance Futures
                 if binance_sym in futures_map:
                     b = futures_map[binance_sym]
-                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 6), 
-                                      round(float(b["highPrice"]), 6), round(float(b["lowPrice"]), 6), 
-                                      round(float(b["lastPrice"]), 6), int(float(b["volume"])))
+                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 8), 
+                                      round(float(b["highPrice"]), 8), round(float(b["lowPrice"]), 8), 
+                                      round(float(b["lastPrice"]), 8), int(float(b["volume"])))
                     success = True
                 
                 # Kaynak 2: Binance Spot
                 if not success and binance_sym in spot_map:
                     b = spot_map[binance_sym]
-                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 6), 
-                                      round(float(b["highPrice"]), 6), round(float(b["lowPrice"]), 6), 
-                                      round(float(b["lastPrice"]), 6), int(float(b["volume"])))
+                    insert_price_data(ticker, today_crypto_str, round(float(b["openPrice"]), 8), 
+                                      round(float(b["highPrice"]), 8), round(float(b["lowPrice"]), 8), 
+                                      round(float(b["lastPrice"]), 8), int(float(b["volume"])))
                     success = True
                 
                 # Kaynak 3: Yahoo Finance (Binance dışı coinler için Fallback)

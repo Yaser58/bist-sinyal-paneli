@@ -91,27 +91,33 @@ def get_live_prices(asset_type="bist", search=None, limit=50):
                 (ticker_yf,)
             ).fetchone()
             
+            is_crypto = asset_type == "crypto"
             p_data = {
                 "ticker": ticker_yf.replace(".IS", "").replace("-USD", ""),
                 "ticker_yf": ticker_yf,
                 "ticker_tv": ticker_yf.replace("-USD", "USD").replace(".IS", ""),
-                "price": round(row["close"], 4) if row and row["close"] else 0,
-                "open": round(row["open"], 4) if row and row["open"] else 0,
-                "high": round(row["high"], 4) if row and row["high"] else 0,
-                "low": round(row["low"], 4) if row and row["low"] else 0,
+                "price": round(row["close"], 8 if is_crypto else 4) if row and row["close"] else 0,
+                "open": round(row["open"], 8 if is_crypto else 4) if row and row["open"] else 0,
+                "high": round(row["high"], 8 if is_crypto else 4) if row and row["high"] else 0,
+                "low": round(row["low"], 8 if is_crypto else 4) if row and row["low"] else 0,
                 "date": row["date"] if row and row["date"] else "-",
                 "change_pct": 0,
-                "is_crypto": asset_type == "crypto"
+                "is_crypto": is_crypto
             }
             
-            # Değişim hesapla
+            # Değişim hesapla (Öncelik: Veritabanı Geçmişi, Fallback: 24s Açılış)
             if row and row["date"]:
+                # Önce veritabanındaki dünkü fiyata bak
                 prev = conn.execute(
                     "SELECT close FROM price_data WHERE ticker=? AND date < ? ORDER BY date DESC LIMIT 1",
                     (ticker_yf, row["date"])
                 ).fetchone()
+                
                 if prev and prev["close"]:
                     p_data["change_pct"] = round(((row["close"] - prev["close"]) / prev["close"]) * 100, 2)
+                elif is_crypto and row["open"] and row["open"] > 0:
+                    # Dünkünü bulamazsak (yeni eklenmişse), 24s önceki açılış fiyatını kullan
+                    p_data["change_pct"] = round(((row["close"] - row["open"]) / row["open"]) * 100, 2)
             
             prices.append(p_data)
         except Exception as e:
@@ -775,7 +781,7 @@ DASHBOARD_HTML = """
                 data.forEach(p=>{
                     const el=document.querySelector(`.tk[data-ticker="${p.ticker}"]`);
                     if(el){
-                        el.querySelector('.tk-price').textContent=p.price.toFixed(p.is_crypto ? 6 : 2) + (p.is_crypto ? ' $' : ' ₺');
+                        el.querySelector('.tk-price').textContent=p.price.toFixed(p.is_crypto ? 8 : 2) + (p.is_crypto ? ' $' : ' ₺');
                         const ch=el.querySelector('.tk-change');
                         ch.textContent=(p.change_pct>=0?'▲':'▼')+' %'+Math.abs(p.change_pct).toFixed(2);
                         ch.className='tk-change '+(p.change_pct>=0?'up':'dn');
