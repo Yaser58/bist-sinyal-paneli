@@ -125,12 +125,20 @@ def get_live_prices(asset_type="bist", search=None, limit=50):
 
 # ─── Arka Plan Worker ────────────────────────────────────────
 
+def price_worker():
+    """Sadece fiyatları çok hızlı güncelleyen işçi (Kripto için 2sn, BIST için 10sn)."""
+    while worker_status["running"]:
+        try:
+            fetch_latest_prices()
+            time.sleep(2) # Kripto piyasası için hızlı döngü
+        except Exception as e:
+            print(f"[PRICE WORKER HATA] {e}")
+            time.sleep(5)
+
 def background_worker():
-    """Sürekli çalışan arka plan işçisi. BIST açıkken daha sık çalışır."""
+    """Ağır işleri (Sinyal, Haber, Teknik Tarama) yapan işçi."""
     global worker_status
     from config import TZ_TURKEY
-    import time
-    import json
     
     worker_status["running"] = True
 
@@ -139,81 +147,50 @@ def background_worker():
             worker_status["cycle"] += 1
             now_dt = datetime.now(TZ_TURKEY)
             worker_status["last_check"] = now_dt.strftime("%d.%m.%Y %H:%M:%S")
-            print(f"\n[WORKER] Döngü #{worker_status['cycle']} BAŞLIYOR - {worker_status['last_check']}")
             
-            # 1. CANLI FİYATLAR (En kritik)
+            # 1. SİNYAL SONUÇLARI (Stop / Kâr)
             try:
-                print("  [1/4] Fiyatlar güncelleniyor...")
-                fetch_latest_prices()
-            except Exception as e:
-                print(f"  [UYARI] Fiyat gunceleme: {e}")
-
-            # 2. SİNYAL SONUÇLARI (Stop / Kâr)
-            try:
-                print("  [2/4] Sinyaller kontrol ediliyor...")
                 check_signal_results()
-            except Exception as e:
-                print(f"  [UYARI] Sinyal kontrol: {e}")
+            except Exception as e: pass
 
-            # 3. HABER TOPLAMA VE İŞLEME
-            bist = get_bist_status()
-            is_open = bist["open"]
-            do_news = (worker_status["cycle"] == 1) or (not is_open) or (worker_status["cycle"] % 3 == 0)
-            
-            if do_news:
-                try:
-                    print("  [3/4] Haberler taranıyor ve işleniyor...")
-                    fetch_kap_notifications()
-                    fetch_all_feeds()
-                    
-                    unprocessed = get_unprocessed_news()
-                    for news in unprocessed:
-                        try:
-                            result = process_news_item(news)
-                            update_news_sentiment(
-                                news_id=result["news_id"],
-                                sentiment_score=result["sentiment_score"],
-                                sentiment_label=result["sentiment_label"],
-                                related_tickers=json.dumps(result["tickers"]),
-                                is_macro=result["is_macro"],
-                                macro_keywords=json.dumps(result["macro_keywords"])
-                            )
-                            if result["sentiment_label"] != "neutral" or result["is_macro"]:
-                                # Sinyal üret
-                                targets = result["tickers"]
-                                if result["is_macro"] and not targets:
-                                    # Makro haber sinyalleri (BIST genel)
-                                    sigs = generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
-                                    worker_status["total_signals"] += len(sigs)
-                                else:
-                                    for tc in targets:
-                                        sig = generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
-                                        if sig:
-                                            worker_status["total_signals"] += 1
-                        except Exception as ne:
-                            print(f"  [UYARI] Haber isleme hatasi: {ne}")
-                except Exception as e:
-                    print(f"  [UYARI] Haber cekme hatasi: {e}")
+            # 2. HABER TOPLAMA VE İŞLEME (5 dakikada bir yeterli)
+            try:
+                fetch_kap_notifications()
+                fetch_all_feeds()
+                
+                unprocessed = get_unprocessed_news()
+                for news in unprocessed:
+                    try:
+                        result = process_news_item(news)
+                        update_news_sentiment(
+                            news_id=result["news_id"],
+                            sentiment_score=result["sentiment_score"],
+                            sentiment_label=result["sentiment_label"],
+                            related_tickers=json.dumps(result["tickers"]),
+                            is_macro=result["is_macro"],
+                            macro_keywords=json.dumps(result["macro_keywords"])
+                        )
+                        if result["sentiment_label"] != "neutral" or result["is_macro"]:
+                            targets = result["tickers"]
+                            if result["is_macro"] and not targets:
+                                generate_macro_signal(result["sentiment_score"], result["sentiment_label"], news["title"])
+                            else:
+                                for tc in targets:
+                                    generate_signal(tc, result["sentiment_score"], result["sentiment_label"], news["title"])
+                    except Exception: pass
+            except Exception: pass
 
-            # 4. TEKNİK TARAMA (Proaktif)
-            if worker_status["cycle"] % 10 == 0:
+            # 3. TEKNİK TARAMA (Proaktif - 10 döngüde bir)
+            if worker_status["cycle"] % 5 == 0:
                 try:
-                    print("  [4/4] Teknik tarama yapılıyor...")
                     tech_signals = run_proactive_scan()
                     for sig in tech_signals[:3]:
                         save_signal(sig)
-                        worker_status["total_signals"] += 1
-                except Exception as e:
-                    print(f"  [UYARI] Teknik tarama hatasi: {e}")
+                except Exception: pass
 
-            print(f"  ✅ Döngü #{worker_status['cycle']} tamamlandı. 60sn uykuya geçiliyor...")
-            time.sleep(60)
+            time.sleep(60) # Haber ve sinyal kontrolü 1 dk bekleyebilir
             
         except Exception as e:
-            error_msg = f"{datetime.now(TZ_TURKEY).strftime('%H:%M:%S')} - {str(e)}"
-            worker_status["errors"].append(error_msg)
-            if len(worker_status["errors"]) > 20:
-                worker_status["errors"] = worker_status["errors"][-20:]
             print(f"[WORKER HATA] {e}")
             time.sleep(10)
 
@@ -379,7 +356,7 @@ DASHBOARD_HTML = """
             </span>
             <span style="color:var(--t2)">{{ bist.reason }}</span>
             <span style="color:var(--t3)">|</span>
-            <span class="server-time">🕐 {{ turkey_time }}</span>
+            <span class="server-time" id="js-clock">🕐 {{ turkey_time }}</span>
             <span style="color:var(--t3)">|</span>
             <div class="dot"></div>
             <span>Son: {{ last_check or '-' }}</span>
@@ -778,7 +755,19 @@ DASHBOARD_HTML = """
         }).catch(err => console.log(err));
     }, 45000);
 
-    // Auto refresh prices with AJAX (live)
+    // Canlı Saat (Saniye Saniye)
+    function updateClock() {
+        const now = new Date();
+        const trTime = new Intl.DateTimeFormat('tr-TR', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false, timeZone: 'Europe/Istanbul'
+        }).format(now);
+        document.getElementById('js-clock').textContent = '🕐 ' + trTime;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Auto refresh prices with AJAX (live) - 2 Saniyede Bir
     setInterval(function(){
         fetch('/api/prices?q=' + (window.location.pathname === '/crypto' ? 'crypto' : 'bist'))
             .then(r=>r.json())
@@ -786,14 +775,14 @@ DASHBOARD_HTML = """
                 data.forEach(p=>{
                     const el=document.querySelector(`.tk[data-ticker="${p.ticker}"]`);
                     if(el){
-                        el.querySelector('.tk-price').textContent=p.price.toFixed(2) + (p.is_crypto ? ' $' : ' ₺');
+                        el.querySelector('.tk-price').textContent=p.price.toFixed(p.is_crypto ? 6 : 2) + (p.is_crypto ? ' $' : ' ₺');
                         const ch=el.querySelector('.tk-change');
                         ch.textContent=(p.change_pct>=0?'▲':'▼')+' %'+Math.abs(p.change_pct).toFixed(2);
                         ch.className='tk-change '+(p.change_pct>=0?'up':'dn');
                     }
                 });
             }).catch(()=>{});
-    }, 15000);
+    }, 2000);
     </script>
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </body>
@@ -1072,14 +1061,17 @@ print("  ⚙️  Veritabanı hazırlanıyor...")
 init_db()
 init_signals_table()
 
-# 1. Thread: Hızlı arka plan worker (Canlı fiyatlar ve Kontrol)
-# Bu thread ağır işlerin bitmesini BEKLEMEZ, hemen çalışmaya başlar.
+# 1. Thread: Hızlı Fiyat Worker
+price_thread = threading.Thread(target=price_worker, daemon=True)
+price_thread.start()
+print("  ⚡ Canlı Fiyat Worker başlatıldı (2sn döngü).")
+
+# 2. Thread: Sinyal ve Haber Worker
 worker_thread = threading.Thread(target=background_worker, daemon=True)
 worker_thread.start()
-print("  📡 Canlı Worker başlatıldı (Bağımsız).")
+print("  📡 Sinyal/Haber Worker başlatıldı.")
 
-# 2. Thread: Ağır init işlemleri (Geçmiş veriler, Haber tarama)
-# Bu thread arka planda ağır işleri yapar, ana worker'ı bloke etmez.
+# 3. Thread: Ağır init işlemleri
 def _start_heavy():
     try: _heavy_init()
     except Exception as e: print(f"  [UYARI] Ağır init hatası: {e}")
