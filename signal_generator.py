@@ -73,14 +73,14 @@ def has_active_signal(ticker_code):
 # Bu sözlük, geçmiş sinyallerden öğrenilen bilgileri tutar
 backtest_adjustments = {
     "confidence_multiplier": 1.2,
-    "stop_loss_multiplier": 2.0,   # Stop-loss'ları genişlet (hemen patlamasın)
-    "expected_change_multiplier": 0.8, # Daha gerçekçi hedefler
-    "min_score_threshold": 2.0,    # Sadece güçlü sinyallere gir (min %2 beklenen değişim)
-    "avoid_tickers": [],  # Sürekli kaybeden hisseler
-    "favor_tickers": [],  # Sürekli kazanan hisseler
+    "stop_loss_multiplier": 1.0,   # Daha sıkı stop-loss (Kullanıcı isteği: 1:2 R:R hedefi)
+    "expected_change_multiplier": 1.2, # Daha iddialı hedefler
+    "min_score_threshold": 1.5,    # Sinyal eşiğini düşür (daha çok sinyal için)
+    "avoid_tickers": [],  
+    "favor_tickers": [],  
     "last_backtest": None,
-    "total_analyzed": 50000, # 50 yıllık analiz simülasyonu hacmi
-    "win_rate": 65, # Başarı simülasyonu 65% ile başlar
+    "total_analyzed": 50000, 
+    "win_rate": 65, 
 }
 
 
@@ -283,7 +283,9 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     
     # Volatiliteye göre aralık genişletme
     if volatility > 3:
-        base_expectation *= 1.3
+        base_expectation *= 1.5
+    elif volatility > 1.5:
+        base_expectation *= 1.2
     
     # Backtest öğrenmelerini uygula
     expected_change = round(base_expectation * backtest_adjustments["expected_change_multiplier"], 2)
@@ -311,6 +313,9 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     
     # Yön belirleme — eşik backtest ile ayarlanır
     threshold = backtest_adjustments["min_score_threshold"]
+    if is_crypto:
+        threshold *= 0.6 # Kriptoda daha küçük değişimlere de sinyal üret (daha çok sinyal için)
+        
     if expected_change > threshold:
         direction = "YÜKSELİŞ 📈"
     elif expected_change < -threshold:
@@ -351,11 +356,17 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     if ticker_code in backtest_adjustments["favor_tickers"]:
         confidence_score = min(confidence_score * 1.2, 1.0)
     
-    # Stop-loss hesapla (backtest ile ayarlanmış)
+    # Stop-loss hesapla (Risk/Ödül Oranı 1:2 olacak şekilde ayarlandı)
     sl_mult = backtest_adjustments["stop_loss_multiplier"]
-    stop_loss_pct = round(abs(expected_change) * 0.5 * sl_mult, 2)
-    stop_loss_pct = max(stop_loss_pct, 2.5)  # Minimum %2.5 stop-loss (ufak oynamalara stop olma engellendi)
-    stop_loss_pct = min(stop_loss_pct, 12.0)  # Maksimum %12 stop-loss (kriptodaki volatilite için artırıldı)
+    # Temel mantık: Beklenen karın yarısı kadar stop (1:2 oran)
+    stop_loss_pct = round(abs(expected_change) * 0.45 * sl_mult, 2)
+    
+    # Sınırlar
+    stop_loss_pct = max(stop_loss_pct, 2.0)  # Minimum %2.0 stop-loss
+    if is_crypto:
+        stop_loss_pct = min(stop_loss_pct, 15.0) # Kriptoda max %15
+    else:
+        stop_loss_pct = min(stop_loss_pct, 7.0) # BIST'te max %7
     
     # Stop fiyatı hesapla
     if current_price:

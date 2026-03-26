@@ -7,7 +7,7 @@ kendi başına sinyal üretir. Trendleri, momentumu ve volatiliteyi analiz eder.
 
 from datetime import datetime, timedelta
 from database import get_connection, init_db
-from config import BIST_TICKERS, TICKER_NAMES
+from config import BIST_TICKERS, CRYPTO_TICKERS, ALL_TICKERS, TICKER_NAMES
 from signal_generator import init_signals_table, has_active_signal, add_business_days
 
 
@@ -128,9 +128,14 @@ def analyze_ticker_technicals(ticker_yf):
         elif score < 0:
             score *= 1.2
 
+    is_crypto = "-USD" in ticker_yf
+    
     # ── Sinyal Kararı ──
-    if abs(score) < 3.5:
-        return None  # Zayıf sinyal — sadece güçlü sinyaller geçer
+    # Kriptoda daha küçük skora da sinyal üret (daha aktif olması için)
+    min_score = 2.5 if is_crypto else 3.5
+    
+    if abs(score) < min_score:
+        return None  
 
     today = datetime.now()
     ticker_code = ticker_yf.replace(".IS", "")
@@ -155,22 +160,36 @@ def analyze_ticker_technicals(ticker_yf):
     else:
         confidence = "DÜŞÜK ⭐"
 
-    # Stop-loss hesapla
-    stop_loss_pct = round(abs(expected_change) * 0.5, 2)
-    stop_loss_pct = max(stop_loss_pct, 1.0)
-    stop_loss_pct = min(stop_loss_pct, 8.0)
-
-    if "YÜKSELİŞ" in direction:
-        stop_price = round(current_price * (1 - stop_loss_pct / 100), 2)
+    # Stop-loss hesapla (1:2 R:R Oranı Hedeflendi)
+    stop_loss_pct = round(abs(expected_change) * 0.45, 2)
+    
+    if is_crypto:
+        stop_loss_pct = max(stop_loss_pct, 2.0)
+        stop_loss_pct = min(stop_loss_pct, 15.0)
     else:
-        stop_price = round(current_price * (1 + stop_loss_pct / 100), 2)
+        stop_loss_pct = max(stop_loss_pct, 1.5)
+        stop_loss_pct = min(stop_loss_pct, 7.0)
 
+    decimals = 6 if is_crypto else 2
+    if "YÜKSELİŞ" in direction:
+        stop_price = round(current_price * (1 - stop_loss_pct / 100), decimals)
+    else:
+        stop_price = round(current_price * (1 + stop_loss_pct / 100), decimals)
+
+    # Tarih ve Bitiş (Kripto: 3 Saat, BIST: 5 Gün)
+    if is_crypto:
+        start_date = today.strftime("%d.%m.%Y %H:%M")
+        end_date = (today + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+    else:
+        start_date = today.strftime("%d.%m.%Y")
+        end_date = add_business_days(today, 5).strftime("%d.%m.%Y")
+        
     signal = {
         "ticker": ticker_code,
         "ticker_yf": ticker_yf,
         "direction": direction,
-        "start_date": today.strftime("%d.%m.%Y"),
-        "end_date": add_business_days(today, 5).strftime("%d.%m.%Y"),
+        "start_date": start_date,
+        "end_date": end_date,
         "expected_change_pct": expected_change,
         "current_price": current_price,
         "stop_loss_pct": stop_loss_pct,
@@ -202,14 +221,14 @@ def analyze_ticker_technicals(ticker_yf):
 
 
 def run_proactive_scan():
-    """Tüm BIST hisselerini tarayarak proaktif sinyaller üretir."""
+    """Tüm BIST ve Kripto paraları tarayarak proaktif sinyaller üretir."""
     print(f"\n\033[95m{'='*60}\033[0m")
     print(f"  🔍 PROAKTİF TARAMA BAŞLADI - {datetime.now().strftime('%H:%M:%S')}")
-    print(f"  📊 {len(BIST_TICKERS)} hisse analiz ediliyor...")
+    print(f"  📊 {len(ALL_TICKERS)} varlık analiz ediliyor...")
     print(f"\033[95m{'='*60}\033[0m")
 
     signals = []
-    for ticker_yf in BIST_TICKERS:
+    for ticker_yf in ALL_TICKERS:
         sig = analyze_ticker_technicals(ticker_yf)
         if sig:
             signals.append(sig)

@@ -186,13 +186,12 @@ def background_worker():
                     except Exception: pass
             except Exception: pass
 
-            # 3. TEKNİK TARAMA (Proaktif - 10 döngüde bir)
-            if worker_status["cycle"] % 5 == 0:
-                try:
-                    tech_signals = run_proactive_scan()
-                    for sig in tech_signals[:3]:
-                        save_signal(sig)
-                except Exception: pass
+            # 3. TEKNİK TARAMA (Proaktif - Her döngüde)
+            try:
+                tech_signals = run_proactive_scan()
+                for sig in tech_signals[:5]:
+                    save_signal(sig)
+            except Exception: pass
 
             time.sleep(60) # Haber ve sinyal kontrolü 1 dk bekleyebilir
             
