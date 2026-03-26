@@ -288,7 +288,11 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
         base_expectation *= 1.2
     
     # Backtest öğrenmelerini uygula
-    expected_change = round(base_expectation * backtest_adjustments["expected_change_multiplier"], 2)
+    exp_mult = backtest_adjustments["expected_change_multiplier"]
+    if not is_crypto:
+        exp_mult *= 1.8 # BIST için hedefleri daha iddialı yap (%2-3 çok az)
+        
+    expected_change = round(base_expectation * exp_mult, 2)
     
     # Backtestten öğrenilen kaçınılacak hisseler
     if ticker_code in backtest_adjustments["avoid_tickers"]:
@@ -334,7 +338,13 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
         end_date_dt = today + timedelta(hours=3)
         end_date = end_date_dt.strftime("%d.%m.%Y %H:%M")
     else:
-        end_date_dt = add_business_days(today, 5)
+        # BIST için Dinamik Süre (Beklenen kar yüksekse süre uzar)
+        # %3-5 -> 3 gün, %5-8 -> 5 gün, %8+ -> 10 gün
+        days = 3
+        if abs(expected_change) > 8: days = 10
+        elif abs(expected_change) > 5: days = 5
+        
+        end_date_dt = add_business_days(today, days)
         end_date = end_date_dt.strftime("%d.%m.%Y")
     
     # Güvenilirlik (backtest ile ayarlanmış)
@@ -362,11 +372,11 @@ def generate_signal(ticker_code, sentiment_score, sentiment_label, news_title, n
     stop_loss_pct = round(abs(expected_change) * 0.45 * sl_mult, 2)
     
     # Sınırlar
-    stop_loss_pct = max(stop_loss_pct, 2.0)  # Minimum %2.0 stop-loss
+    stop_loss_pct = max(stop_loss_pct, 1.8)  # Minimum %1.8 stop-loss
     if is_crypto:
-        stop_loss_pct = min(stop_loss_pct, 15.0) # Kriptoda max %15
+        stop_loss_pct = min(stop_loss_pct, 15.0) 
     else:
-        stop_loss_pct = min(stop_loss_pct, 7.0) # BIST'te max %7
+        stop_loss_pct = min(stop_loss_pct, 6.0) # BIST'te Max %6 (Kullanıcı zarar istemiyor)
     
     # Stop fiyatı hesapla
     if current_price:

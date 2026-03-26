@@ -188,10 +188,12 @@ def background_worker():
 
             # 3. TEKNİK TARAMA (Proaktif - Her döngüde)
             try:
+                print(f"[WORKER] Teknik tarama başladı... {now_dt.strftime('%H:%M:%S')}")
                 tech_signals = run_proactive_scan()
-                for sig in tech_signals[:5]:
+                for sig in tech_signals[:10]:
                     save_signal(sig)
-            except Exception: pass
+            except Exception as e:
+                print(f"[WORKER HATA] Teknik tarama: {e}")
 
             time.sleep(60) # Haber ve sinyal kontrolü 1 dk bekleyebilir
             

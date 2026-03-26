@@ -132,7 +132,7 @@ def analyze_ticker_technicals(ticker_yf):
     
     # ── Sinyal Kararı ──
     # Kriptoda daha küçük skora da sinyal üret (daha aktif olması için)
-    min_score = 2.5 if is_crypto else 3.5
+    min_score = 1.2 if is_crypto else 2.8
     
     if abs(score) < min_score:
         return None  
@@ -250,7 +250,13 @@ if __name__ == "__main__":
     init_signals_table()
     from signal_generator import print_signal, save_signal
 
-    signals = run_proactive_scan()
-    for sig in signals[:10]:
-        print_signal(sig)
-        save_signal(sig)
+    # 3. TEKNİK TARAMA (Proaktif - Her döngüde)
+    try:
+        now_dt = datetime.now()
+        print(f"[WORKER] Teknik tarama başladı... Time: {now_dt.strftime('%H:%M:%S')}")
+        tech_signals = run_proactive_scan()
+        for sig in tech_signals[:10]: # Max 10 sinyal
+            print_signal(sig) # Keep print_signal for local execution
+            save_signal(sig)
+    except Exception as e:
+        print(f"[WORKER HATA - TARAMA] {e}")
