@@ -58,7 +58,7 @@ BIST_TICKERS = [
 # Sadece kullanıcının belirttiği coinler
 CRYPTO_TICKERS = [
     "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "ADA-USD",
-    "BNB-USD", "DOGE-USD", "PEPE-USD", "AVAX-USD", "LINK-USD"
+    'BNB-USD', 'DOGE-USD', 'NEAR-USD', 'AVAX-USD', 'LINK-USD'
 ]
 
 ALL_TICKERS = BIST_TICKERS + CRYPTO_TICKERS
@@ -107,7 +107,7 @@ COMPANY_NAMES = {
     "ADA": ["cardano", "ada"],
     "BNB": ["binance coin", "bnb"],
     "DOGE": ["dogecoin", "doge"],
-    "PEPE": ["pepe"],
+    "NEAR": ["near protocol", "near"],
     "AVAX": ["avalanche", "avax"],
     "LINK": ["chainlink", "link"],
 }
