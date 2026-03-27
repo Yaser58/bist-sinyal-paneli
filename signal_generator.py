@@ -498,6 +498,11 @@ def check_signal_results():
         hit_target = False
         hit_stop = False
         
+        # Vade sonu kontrolü (Kullanıcı isteği: Sinyaller silinmesin/kapanmasın)
+        # Sinyaller artık sadece kar al (KAZANDI) veya zarar durdur (STOP) olduğunda kapanacak.
+        # if now_tr > end_date_dt:
+        #     conn.execute("UPDATE signals SET status='TAMAMLANDI', result_pct=? WHERE id=?", (actual_change, sig["id"]))
+        
         # Hedef kontrolü
         if is_up and actual_change >= expected_pct:
             hit_target = True
