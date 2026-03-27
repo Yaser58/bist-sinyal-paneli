@@ -222,27 +222,35 @@ def analyze_ticker_technicals(ticker_yf):
 
 def run_proactive_scan():
     """Tüm BIST ve Kripto paraları tarayarak proaktif sinyaller üretir."""
-    print(f"\n\033[95m{'='*60}\033[0m")
-    print(f"  🔍 PROAKTİF TARAMA BAŞLADI - {datetime.now().strftime('%H:%M:%S')}")
-    print(f"  📊 {len(ALL_TICKERS)} varlık analiz ediliyor...")
-    print(f"\033[95m{'='*60}\033[0m")
-
-    signals = []
-    for ticker_yf in ALL_TICKERS:
+    print(f"\n  🔍 [TARAMA] Teknik analiz başlatıldı... ({datetime.now().strftime('%H:%M:%S')})")
+    
+    bist_signals = []
+    crypto_signals = []
+    
+    # Kriptoları tara
+    for ticker_yf in CRYPTO_TICKERS:
         sig = analyze_ticker_technicals(ticker_yf)
         if sig:
-            signals.append(sig)
+            crypto_signals.append(sig)
 
-    # En güçlü sinyalleri sırala, max 5 sinyal
-    signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
-    signals = signals[:5]  # En fazla 5 sinyal üret
+    # BIST hisselerini tara
+    for ticker_yf in BIST_TICKERS:
+        sig = analyze_ticker_technicals(ticker_yf)
+        if sig:
+            bist_signals.append(sig)
 
-    if signals:
-        print(f"\n  🎯 {len(signals)} güçlü sinyal bulundu!\n")
+    # Kriptolardan en iyi 5, BIST'ten en iyi 5 sinyali al
+    crypto_signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
+    bist_signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
+    
+    final_signals = crypto_signals[:10] + bist_signals[:5]
+    
+    if final_signals:
+        print(f"  🎯 [BAŞARI] {len(crypto_signals)} Kripto, {len(bist_signals)} BIST sinyali yakalandı.")
     else:
-        print(f"\n  ℹ️ Güçlü teknik sinyal bulunamadı.")
+        print("  ℹ️ [BİLGİ] Şu an için sistem kriterlerine uyan teknik sinyal yok.")
 
-    return signals
+    return final_signals
 
 
 if __name__ == "__main__":
