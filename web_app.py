@@ -395,6 +395,7 @@ DASHBOARD_HTML = """
         <div class="st"><div class="lb">Takip Edilen</div><div class="vl b">{{ price_count }} Hisse</div></div>
     </div>
 
+    {% if page in ['main', 'crypto'] %}
     <!-- LIVE TICKER BAR (SPA-Style) -->
     <div class="ticker-section" id="v-main">
         <div class="ticker-header">
@@ -762,12 +763,15 @@ DASHBOARD_HTML = """
     setInterval(updateClock, 1000);
     updateClock();
 
-    let currentView = 'bist';
+    let currentView = '{{ "crypto" if page == "crypto" else "bist" }}';
     
     function switchView(view, el) {
         currentView = view;
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-        if(el) el.classList.add('active');
+        // ID ile tab seçimi (SPA geçişleri için)
+        const targetTab = el || document.getElementById('tab-' + view);
+        if(targetTab) targetTab.classList.add('active');
+        
         document.getElementById('view-title').textContent = (view === 'bist' ? '📈 VİOP Canlı Hisseler' : '₿ Kripto Futures') + ' Canlı';
         refreshPrices();
     }
@@ -797,7 +801,7 @@ DASHBOARD_HTML = """
     }
     
     setInterval(refreshPrices, 2000);
-    refreshPrices();
+    switchView(currentView);
     </script>
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </body>
