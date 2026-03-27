@@ -190,6 +190,10 @@ def background_worker():
             try:
                 print(f"[WORKER] Teknik tarama başladı... {now_dt.strftime('%H:%M:%S')}")
                 tech_signals = run_proactive_scan()
+                # UI'da göstermek için son durumu güncelle
+                scan_msg = f"{now_dt.strftime('%H:%M:%S')}: {len(tech_signals)} fırsat tarandı."
+                worker_status["last_check"] = scan_msg
+                
                 for sig in tech_signals:
                     save_signal(sig)
             except Exception as e:
@@ -838,6 +842,7 @@ def _get_common_context():
         "last_check": worker_status["last_check"],
         "cycle": worker_status["cycle"],
         "price_count": len(BIST_TICKERS) + len(CRYPTO_TICKERS),
+        "last_scans": worker_status["last_scans"],
         "bist": bist,
         "backtest": backtest,
         "turkey_time": turkey_time,
