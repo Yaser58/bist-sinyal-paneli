@@ -244,7 +244,7 @@ DASHBOARD_HTML = """
 
         /* ── NAV TABS ── */
         .nav-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--bg2);border-bottom:1px solid var(--br);overflow-x:auto}
-        .nav-tab{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;color:var(--t2);text-decoration:none;transition:all .2s;white-space:nowrap;border:1px solid transparent}
+        .nav-tab{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;color:var(--t2);cursor:pointer;transition:all .2s;white-space:nowrap;border:1px solid transparent}
         .nav-tab:hover{background:var(--bg3);color:var(--t1)}
         .nav-tab.active{background:var(--bg4);color:var(--b);border-color:var(--b)}
         .nav-tab .count{background:var(--bg4);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px}
@@ -378,13 +378,11 @@ DASHBOARD_HTML = """
 
     <!-- NAV TABS -->
     <div class="nav-tabs">
-        <a href="/" class="nav-tab {{ 'active' if page == 'main' else '' }}">📊 Ana Panel (BIST)</a>
-        <a href="/crypto" class="nav-tab {{ 'active' if page == 'crypto' else '' }}">🚀 Ana Panel 2 (Kripto)</a>
-        <a href="/stopped" class="nav-tab stop-tab {{ 'active' if page == 'stopped' else '' }}">🛑 Stop Olan<span class="count">{{ stopped_count }}</span></a>
-        <a href="/won" class="nav-tab won-tab {{ 'active' if page == 'won' else '' }}">✅ Kazanılan<span class="count">{{ won_count }}</span></a>
-        <a href="/news" class="nav-tab {{ 'active' if page == 'news' else '' }}">📰 Haberler<span class="count">{{ news_count }}</span></a>
-        <a href="/backtest" class="nav-tab {{ 'active' if page == 'backtest' else '' }}">🧠 Backtest</a>
-        <a href="/history" class="nav-tab {{ 'active' if page == 'history' else '' }}">📜 Geçmiş</a>
+        <div class="nav-tab active" id="tab-bist" onclick="switchView('bist', this)">📊 Ana Panel (BIST)</div>
+        <div class="nav-tab" id="tab-crypto" onclick="switchView('crypto', this)">🚀 Ana Panel 2 (Kripto)</div>
+        <a href="/stopped" class="nav-tab stop-tab">🛑 Stop Olan <span class="count">{{ stopped_count }}</span></a>
+        <a href="/won" class="nav-tab won-tab">✅ Kazanılan <span class="count">{{ won_count }}</span></a>
+        <a href="/backtest" class="nav-tab">🧠 Backtest</a>
     </div>
 
     <!-- STATS -->
@@ -397,37 +395,21 @@ DASHBOARD_HTML = """
         <div class="st"><div class="lb">Takip Edilen</div><div class="vl b">{{ price_count }} Hisse</div></div>
     </div>
 
-    {% if page in ['main', 'crypto'] %}
-    <!-- LIVE TICKER BAR -->
-    <div class="ticker-section">
+    <!-- LIVE TICKER BAR (SPA-Style) -->
+    <div class="ticker-section" id="v-main">
         <div class="ticker-header">
-            <h2>📈 {{ 'VİOP' if page == 'main' else 'Kripto Futures' }} Canlı Fiyatlar {% if bist.open or page == 'crypto' %}(Canlı){% else %}(Son Kapanış){% endif %}</h2>
-            <input type="text" class="search-box" placeholder="🔍 Hisse ara... ({{ 'THYAO' if page == 'main' else 'BTC' }})" id="searchInput" onkeyup="filterTickers()">
+            <h2 id="view-title">📈 VİOP Canlı Hisseler (Canlı)</h2>
+            <input type="text" class="search-box" placeholder="🔍 Hisse ara..." id="searchInput" onkeyup="filterTickers()">
         </div>
         <div class="ticker-grid" id="tickerGrid">
-            {% for p in prices %}
-            <div class="tk" data-ticker="{{ p.ticker }}" onclick="openChart('{{ p.ticker_tv }}', {{ 'true' if p.is_crypto else 'false' }})">
-                <div class="tk-top">
-                    <span class="tk-code">{{ p.ticker }}</span>
-                    <span class="tk-change {{ 'up' if p.change_pct >= 0 else 'dn' }}">
-                        {{ '▲' if p.change_pct >= 0 else '▼' }} %{{ '{:.2f}'.format(p.change_pct|abs) }}
-                    </span>
-                </div>
-                <div class="tk-price">{{ p.price }} {{ 'TL' if page == 'main' else '$' }}</div>
-                <div class="tk-sub">A: {{ p.open }} | Y: {{ p.high }} | D: {{ p.low }}</div>
-                <div class="tk-date">{{ p.date }}</div>
-            </div>
-            {% endfor %}
-            {% if not prices %}
-            <div class="empty">Fiyat verisi yükleniyor...</div>
-            {% endif %}
+            <div class="empty">Veriler yükleniyor...</div>
         </div>
     </div>
 
-    <!-- ACTIVE SIGNALS -->
+    <!-- ACTIVE SIGNALS (Always Visible) -->
     <div class="container">
         <div class="sec-title">📡 Aktif Sinyaller</div>
-        <div class="sig-grid">
+        <div class="sig-grid" id="activeSigGrid">
             {% for sig in active_signals %}
             {% set is_up = 'YÜKSELİŞ' in (sig.direction or '') %}
             <div class="sig {{ 'up' if is_up else 'dn' }}">
@@ -780,22 +762,42 @@ DASHBOARD_HTML = """
     setInterval(updateClock, 1000);
     updateClock();
 
-    // Auto refresh prices with AJAX (live) - 2 Saniyede Bir
-    setInterval(function(){
-        fetch('/api/prices?q=' + (window.location.pathname === '/crypto' ? 'crypto' : 'bist'))
+    let currentView = 'bist';
+    
+    function switchView(view, el) {
+        currentView = view;
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        if(el) el.classList.add('active');
+        document.getElementById('view-title').textContent = (view === 'bist' ? '📈 VİOP Canlı Hisseler' : '₿ Kripto Futures') + ' Canlı';
+        refreshPrices();
+    }
+
+    function refreshPrices(){
+        fetch('/api/prices?q=' + currentView)
             .then(r=>r.json())
             .then(data=>{
+                const grid = document.getElementById('tickerGrid');
+                if(!grid) return;
+                let html = '';
                 data.forEach(p=>{
-                    const el=document.querySelector(`.tk[data-ticker="${p.ticker}"]`);
-                    if(el){
-                        el.querySelector('.tk-price').textContent=p.price.toFixed(p.is_crypto ? 8 : 2) + (p.is_crypto ? ' $' : ' ₺');
-                        const ch=el.querySelector('.tk-change');
-                        ch.textContent=(p.change_pct>=0?'▲':'▼')+' %'+Math.abs(p.change_pct).toFixed(2);
-                        ch.className='tk-change '+(p.change_pct>=0?'up':'dn');
-                    }
+                    html += `
+                    <div class="tk" data-ticker="${p.ticker}" onclick="openChart('${p.ticker_tv}', ${p.is_crypto})">
+                        <div class="tk-top">
+                            <span class="tk-code">${p.ticker}</span>
+                            <span class="tk-change ${p.change_pct >= 0 ? 'up':'dn'}">
+                                ${p.change_pct >= 0? '▲':'▼'} %${Math.abs(p.change_pct).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="tk-price">${p.price.toFixed(p.is_crypto?6:2)} ${p.is_crypto?'$':'₺'}</div>
+                        <div class="tk-sub">A: ${p.open} | Y: ${p.high} | D: ${p.low}</div>
+                    </div>`;
                 });
+                grid.innerHTML = html || '<div class="empty">Veri bulunamadı.</div>';
             }).catch(()=>{});
-    }, 2000);
+    }
+    
+    setInterval(refreshPrices, 2000);
+    refreshPrices();
     </script>
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </body>
