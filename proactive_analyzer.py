@@ -137,8 +137,8 @@ def analyze_ticker_technicals(ticker_yf):
     is_crypto = "-USD" in ticker_yf
     
     # ── Sinyal Kararı ──
-    # Kriptoda daha küçük skora da sinyal üret (daha aktif olması için)
-    min_score = 0.6 if is_crypto else 2.5
+    # Kriptoda eşiği neredeyse sıfıra çekiyoruz (Kullanıcı sinyal görmek istiyor)
+    min_score = 0.05 if is_crypto else 1.5
     
     if abs(score) < min_score:
         return None  
@@ -185,7 +185,8 @@ def analyze_ticker_technicals(ticker_yf):
     # Tarih ve Bitiş (Kripto: 3 Saat, BIST: 5 Gün)
     if is_crypto:
         start_date = today.strftime("%d.%m.%Y %H:%M")
-        end_date = (today + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+        # Süreyi biraz daha uzun tutalım ki hemen 'Tamamlandı'ya düşmesin
+        end_date = (today + timedelta(days=1)).strftime("%d.%m.%Y %H:%M")
     else:
         start_date = today.strftime("%d.%m.%Y")
         end_date = add_business_days(today, 5).strftime("%d.%m.%Y")

@@ -439,9 +439,10 @@ DASHBOARD_HTML = """
                 <div class="sig-rows">
                     <div class="sig-row"><span class="l">📅 Süre</span><span class="v">{{ sig.start_date }} → {{ sig.end_date }}</span></div>
                     {% if sig.price_at_signal %}
-                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ '%.6f'|format(sig.price_at_signal) }}</span></div>
-                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ '%.6f'|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }}</span></div>
-                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ '%.6f'|format(sig.stop_price or 0) }} (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
+                    {% set prc_fmt = '%.6f' if sig.ticker_yf.endswith('-USD') else '%.2f' %}
+                    <div class="sig-row"><span class="l">💰 Fiyat</span><span class="v">{{ prc_fmt|format(sig.price_at_signal) }}</span></div>
+                    <div class="sig-row"><span class="l">🎯 Hedef</span><span class="v {{ 'g' if is_up else 'r' }}">{{ prc_fmt|format(sig.price_at_signal * (1 + (sig.expected_change_pct or 0)/100)) }}</span></div>
+                    <div class="sig-row"><span class="l">🛑 Stop</span><span class="v o">{{ prc_fmt|format(sig.stop_price or 0) }} (%{{ '%.1f'|format(sig.stop_loss_pct or 0) }})</span></div>
                     {% endif %}
                     <div class="sig-row"><span class="l">🛡 Güven</span><span class="v">{{ sig.confidence or '?' }}</span></div>
                 </div>
@@ -853,7 +854,7 @@ def _get_common_context():
 @app.route("/")
 def dashboard():
     ctx = _get_common_context()
-    active = [s for s in get_active_signals() if not s["ticker_yf"].endswith("-USD")]
+    active = get_active_signals() # Tüm sinyalleri her sayfada göster
     prices = get_live_prices(asset_type="bist", limit=50)
 
     return render_template_string(
@@ -867,7 +868,7 @@ def dashboard():
 @app.route("/crypto")
 def crypto_dashboard():
     ctx = _get_common_context()
-    active = [s for s in get_active_signals() if s["ticker_yf"].endswith("-USD")]
+    active = get_active_signals() # Tüm sinyalleri her sayfada göster
     prices = get_live_prices(asset_type="crypto", limit=50)
 
     return render_template_string(
