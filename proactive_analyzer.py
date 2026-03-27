@@ -23,7 +23,9 @@ def analyze_ticker_technicals(ticker_yf):
     ).fetchall()
     conn.close()
 
-    if len(rows) < 15:
+    # Veri sayısı kontrolü (Kriptoda daha az geçmişle analiz başlasın)
+    min_needed = 5 if "-USD" in ticker_yf else 15
+    if len(rows) < min_needed:
         return None
 
     prices = [r["close"] for r in rows]
@@ -120,19 +122,23 @@ def analyze_ticker_technicals(ticker_yf):
         score -= 1
         reasons.append(f"Direnç seviyesine yakın ({recent_high:.2f})")
 
-    # Hacim artışı
-    if volume_ratio > 1.5:
-        reasons.append(f"Hacim ortalamanın {volume_ratio:.1f}x üstünde")
-        if score > 0:
-            score *= 1.2
-        elif score < 0:
-            score *= 1.2
+    # ── Scalping / Day Trade Mantığı (Kriptoya Ekstra Hassasiyet) ──
+    if is_crypto:
+        # Fiyat MA5'in üzerindeyse ve RSI nötr (45+) ise bile hafif alım üret
+        if current_price > ma5 and rsi > 45:
+            score += 1.0
+        # Hacim artışına daha büyük önem ver
+        if volume_ratio > 1.2:
+            score *= 1.4
+        # Kısa vadeli momentum (1 günlük)
+        daily_ch = (prices[0] - prices[1]) / prices[1] * 100 if len(prices) > 1 else 0
+        score += daily_ch * 0.5
 
     is_crypto = "-USD" in ticker_yf
     
     # ── Sinyal Kararı ──
     # Kriptoda daha küçük skora da sinyal üret (daha aktif olması için)
-    min_score = 1.2 if is_crypto else 2.8
+    min_score = 0.6 if is_crypto else 2.5
     
     if abs(score) < min_score:
         return None  
