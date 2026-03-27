@@ -35,6 +35,7 @@ worker_status = {
     "cycle": 0,
     "total_signals": 0,
     "errors": [],
+    "last_scans": []
 }
 
 # ─── BIST Piyasa Durumu ──────────────────────────────────────
