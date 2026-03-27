@@ -239,11 +239,8 @@ def run_proactive_scan():
         if sig:
             bist_signals.append(sig)
 
-    # Kriptolardan en iyi 5, BIST'ten en iyi 5 sinyali al
-    crypto_signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
-    bist_signals.sort(key=lambda x: abs(x["expected_change_pct"]), reverse=True)
-    
-    final_signals = crypto_signals[:10] + bist_signals[:5]
+    # Limitleri kaldırıyoruz (Kullanıcı tüm fırsatları görmek istiyor)
+    final_signals = crypto_signals + bist_signals
     
     if final_signals:
         print(f"  🎯 [BAŞARI] {len(crypto_signals)} Kripto, {len(bist_signals)} BIST sinyali yakalandı.")
@@ -263,7 +260,7 @@ if __name__ == "__main__":
         now_dt = datetime.now()
         print(f"[WORKER] Teknik tarama başladı... Time: {now_dt.strftime('%H:%M:%S')}")
         tech_signals = run_proactive_scan()
-        for sig in tech_signals[:10]: # Max 10 sinyal
+        for sig in tech_signals:
             print_signal(sig) # Keep print_signal for local execution
             save_signal(sig)
     except Exception as e:

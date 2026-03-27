@@ -190,7 +190,7 @@ def background_worker():
             try:
                 print(f"[WORKER] Teknik tarama başladı... {now_dt.strftime('%H:%M:%S')}")
                 tech_signals = run_proactive_scan()
-                for sig in tech_signals[:10]:
+                for sig in tech_signals:
                     save_signal(sig)
             except Exception as e:
                 print(f"[WORKER HATA] Teknik tarama: {e}")
